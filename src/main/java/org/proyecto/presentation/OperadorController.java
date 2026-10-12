@@ -1,10 +1,10 @@
 package org.proyecto.presentation;
 
 import org.proyecto.business.Autorizador;
+import org.proyecto.business.Permisos;
+import org.proyecto.business.SesionActiva;
 import org.proyecto.config.AuthenticatedSession;
 import org.proyecto.data.OperadorRepository;
-import org.proyecto.entities.CuentaAcceso;
-import org.proyecto.entities.Rol;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,8 +24,8 @@ public class OperadorController {
     }
 
     @GetMapping
-    public List<OperadorResumen> listarActivos(@AuthenticatedSession CuentaAcceso cuenta) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
+    public List<OperadorResumen> listarActivos(@AuthenticatedSession SesionActiva sesion) {
+        autorizador.requirePermiso(sesion, Permisos.TICKET_ASIGNAR);
         return operadorRepository.findByActivoTrue().stream().map(OperadorResumen::from).toList();
     }
 }

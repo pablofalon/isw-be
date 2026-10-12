@@ -3,12 +3,12 @@ package org.proyecto.presentation;
 import org.proyecto.business.Autorizador;
 import org.proyecto.business.ForbiddenOperationException;
 import org.proyecto.business.InvalidTicketOperationException;
+import org.proyecto.business.Permisos;
+import org.proyecto.business.SesionActiva;
 import org.proyecto.business.TicketService;
 import org.proyecto.config.AuthenticatedSession;
 import org.proyecto.entities.Adjunto;
-import org.proyecto.entities.CuentaAcceso;
 import org.proyecto.entities.Operador;
-import org.proyecto.entities.Rol;
 import org.proyecto.entities.Ticket;
 import org.proyecto.entities.UsuarioTicket;
 import org.springframework.http.ResponseEntity;
@@ -39,9 +39,9 @@ public class TicketController {
 
     // CU01
     @PostMapping
-    public ResponseEntity<TicketResponse> registrar(@AuthenticatedSession CuentaAcceso cuenta,
+    public ResponseEntity<TicketResponse> registrar(@AuthenticatedSession SesionActiva sesion,
                                                       @RequestBody CrearTicketRequest request) {
-        UsuarioTicket usuario = usuarioDe(cuenta);
+        UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_CREAR);
         Ticket ticket = ticketService.registrarTicket(usuario, request.getTitulo(), request.getDescripcion(),
                 request.getIdCategoria(), request.getIdPrioridadSugerida());
         return ResponseEntity.ok(enriquecer(ticket));
@@ -49,9 +49,9 @@ public class TicketController {
 
     // CU02
     @PostMapping("/{id}/adjuntos")
-    public ResponseEntity<AdjuntoResponse> adjuntar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<AdjuntoResponse> adjuntar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                       @RequestParam("file") MultipartFile file) {
-        UsuarioTicket usuario = usuarioDe(cuenta);
+        UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_CREAR);
         if (file.isEmpty() || file.getOriginalFilename() == null) {
             throw new InvalidTicketOperationException("El archivo es obligatorio");
         }
@@ -65,134 +65,136 @@ public class TicketController {
 
     // CU03
     @GetMapping("/mios")
-    public List<TicketResponse> misTickets(@AuthenticatedSession CuentaAcceso cuenta) {
-        UsuarioTicket usuario = usuarioDe(cuenta);
+    public List<TicketResponse> misTickets(@AuthenticatedSession SesionActiva sesion) {
+        UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_VER_PROPIOS);
         return ticketService.consultarTicketsDeUsuario(usuario.getId()).stream()
                 .map(TicketResponse::from)
                 .toList();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<TicketResponse> detalle(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id) {
+    public ResponseEntity<TicketResponse> detalle(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id) {
         Ticket ticket = ticketService.obtenerDetalle(id);
-        if (cuenta.getRol() == Rol.USUARIO && !ticket.getUsuario().getId().equals(cuenta.getUsuarioTicket().getId())) {
-            throw new ForbiddenOperationException("No podés ver un ticket que no te pertenece");
+        if (!sesion.tiene(Permisos.TICKET_VER_TODOS)) {
+            UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_VER_PROPIOS);
+            if (!ticket.getUsuario().getId().equals(usuario.getId())) {
+                throw new ForbiddenOperationException("No podés ver un ticket que no te pertenece");
+            }
         }
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU06 FA2 - usuario reenvía tras PENDIENTE_CORRECCION
     @PostMapping("/{id}/reenviar")
-    public ResponseEntity<TicketResponse> reenviar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> reenviar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                      @RequestBody ReenviarTicketRequest request) {
-        UsuarioTicket usuario = usuarioDe(cuenta);
+        UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_REENVIAR);
         Ticket ticket = ticketService.reenviarTicket(id, usuario.getId(), request.getTitulo(), request.getDescripcion());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU04
     @GetMapping("/pendientes-clasificacion")
-    public List<TicketResponse> pendientesClasificacion(@AuthenticatedSession CuentaAcceso cuenta) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
+    public List<TicketResponse> pendientesClasificacion(@AuthenticatedSession SesionActiva sesion) {
+        autorizador.requirePermiso(sesion, Permisos.TICKET_CLASIFICAR);
         return ticketService.listarPendientesClasificacion().stream().map(TicketResponse::from).toList();
     }
 
     @PostMapping("/{id}/clasificar")
-    public ResponseEntity<TicketResponse> clasificar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> clasificar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                        @RequestBody ClasificarTicketRequest request) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
+        autorizador.requirePermiso(sesion, Permisos.TICKET_CLASIFICAR);
         Ticket ticket = ticketService.clasificar(id, request.getIdCategoria());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU05
     @PostMapping("/{id}/prioridad")
-    public ResponseEntity<TicketResponse> asignarPrioridad(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> asignarPrioridad(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                              @RequestBody AsignarPrioridadRequest request) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
+        autorizador.requirePermiso(sesion, Permisos.TICKET_CLASIFICAR);
         Ticket ticket = ticketService.asignarPrioridad(id, request.getIdPrioridad());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU06
     @PostMapping("/{id}/validar")
-    public ResponseEntity<TicketResponse> validar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id) {
-        Operador operador = operadorDe(cuenta);
+    public ResponseEntity<TicketResponse> validar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id) {
+        Operador operador = operadorDe(sesion, Permisos.TICKET_CLASIFICAR);
         Ticket ticket = ticketService.validarTicket(id, operador);
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     @PostMapping("/{id}/marcar-incompleto")
-    public ResponseEntity<TicketResponse> marcarIncompleto(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> marcarIncompleto(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                              @RequestBody MarcarIncompletoRequest request) {
-        Operador operador = operadorDe(cuenta);
+        Operador operador = operadorDe(sesion, Permisos.TICKET_CLASIFICAR);
         Ticket ticket = ticketService.marcarIncompleto(id, operador, request.getObservacion());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     @GetMapping("/asignados-a-mi")
-    public List<TicketResponse> asignadosAMi(@AuthenticatedSession CuentaAcceso cuenta) {
-        Operador operador = operadorDe(cuenta);
+    public List<TicketResponse> asignadosAMi(@AuthenticatedSession SesionActiva sesion) {
+        Operador operador = operadorDe(sesion, Permisos.TICKET_RESOLVER);
         return ticketService.listarAsignadosA(operador.getId()).stream().map(TicketResponse::from).toList();
     }
 
     // CU13
     @GetMapping("/sin-asignar")
-    public List<TicketResponse> sinAsignar(@AuthenticatedSession CuentaAcceso cuenta) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
+    public List<TicketResponse> sinAsignar(@AuthenticatedSession SesionActiva sesion) {
+        autorizador.requirePermiso(sesion, Permisos.TICKET_ASIGNAR);
         return ticketService.listarSinAsignar().stream().map(TicketResponse::from).toList();
     }
 
     @PostMapping("/{id}/asignar")
-    public ResponseEntity<TicketResponse> asignar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> asignar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                     @RequestBody AsignarOperadorRequest request) {
-        Operador responsable = operadorDe(cuenta);
+        Operador responsable = operadorDe(sesion, Permisos.TICKET_ASIGNAR);
         Ticket ticket = ticketService.asignarOperador(id, request.getIdOperador(), responsable);
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU14
     @PostMapping("/{id}/reasignar")
-    public ResponseEntity<TicketResponse> reasignar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> reasignar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                       @RequestBody ReasignarOperadorRequest request) {
-        Operador responsable = operadorDe(cuenta);
+        Operador responsable = operadorDe(sesion, Permisos.TICKET_ASIGNAR);
         Ticket ticket = ticketService.reasignarOperador(id, request.getIdOperadorNuevo(), request.getMotivo(), responsable);
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // Transición operativa hacia RESUELTO
     @PostMapping("/{id}/resolver")
-    public ResponseEntity<TicketResponse> resolver(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id) {
-        Operador operador = operadorDe(cuenta);
+    public ResponseEntity<TicketResponse> resolver(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id) {
+        Operador operador = operadorDe(sesion, Permisos.TICKET_RESOLVER);
         Ticket ticket = ticketService.marcarResuelto(id, operador);
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU17
     @PostMapping("/{id}/cerrar")
-    public ResponseEntity<TicketResponse> cerrar(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> cerrar(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                    @RequestBody CerrarTicketRequest request) {
-        Operador operador = operadorDe(cuenta);
+        Operador operador = operadorDe(sesion, Permisos.TICKET_RESOLVER);
         Ticket ticket = ticketService.cerrarTicket(id, operador, request.getSolucion());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU18
     @PostMapping("/{id}/validar-resolucion")
-    public ResponseEntity<TicketResponse> validarResolucion(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id) {
-        UsuarioTicket usuario = usuarioDe(cuenta);
+    public ResponseEntity<TicketResponse> validarResolucion(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id) {
+        UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_VALIDAR_RESOLUCION);
         Ticket ticket = ticketService.validarResolucion(id, usuario);
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
     // CU19
     @PostMapping("/{id}/reabrir")
-    public ResponseEntity<TicketResponse> reabrir(@AuthenticatedSession CuentaAcceso cuenta, @PathVariable Long id,
+    public ResponseEntity<TicketResponse> reabrir(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
                                                     @RequestBody ReabrirTicketRequest request) {
-        autorizador.requireRol(cuenta, Rol.USUARIO, Rol.OPERADOR);
-        Ticket ticket = cuenta.getRol() == Rol.USUARIO
-                ? ticketService.reabrirTicketPorUsuario(id, cuenta.getUsuarioTicket(), request.getMotivo())
-                : ticketService.reabrirTicketPorOperador(id, cuenta.getOperador(), request.getMotivo());
+        Ticket ticket = sesion.tiene(Permisos.TICKET_REABRIR_PROPIO)
+                ? ticketService.reabrirTicketPorUsuario(id, usuarioDe(sesion, Permisos.TICKET_REABRIR_PROPIO), request.getMotivo())
+                : ticketService.reabrirTicketPorOperador(id, operadorDe(sesion, Permisos.TICKET_REABRIR_OPERATIVO), request.getMotivo());
         return ResponseEntity.ok(enriquecer(ticket));
     }
 
@@ -205,14 +207,27 @@ public class TicketController {
         return response;
     }
 
-    private UsuarioTicket usuarioDe(CuentaAcceso cuenta) {
-        autorizador.requireRol(cuenta, Rol.USUARIO);
-        return cuenta.getUsuarioTicket();
+    /**
+     * Separa autorización de identidad: primero se exige el permiso y después se obtiene la entidad
+     * vinculada a la cuenta. Si alguien asignara un permiso de usuario a una cuenta de operador (o
+     * al revés) la operación sigue rechazándose, porque la cuenta no tiene con quién actuar.
+     */
+    private UsuarioTicket usuarioDe(SesionActiva sesion, String permiso) {
+        autorizador.requirePermiso(sesion, permiso);
+        UsuarioTicket usuario = sesion.cuenta().getUsuarioTicket();
+        if (usuario == null) {
+            throw new ForbiddenOperationException("La cuenta no está vinculada a un usuario de tickets");
+        }
+        return usuario;
     }
 
-    private Operador operadorDe(CuentaAcceso cuenta) {
-        autorizador.requireRol(cuenta, Rol.OPERADOR, Rol.ADMINISTRADOR);
-        return cuenta.getOperador();
+    private Operador operadorDe(SesionActiva sesion, String permiso) {
+        autorizador.requirePermiso(sesion, permiso);
+        Operador operador = sesion.cuenta().getOperador();
+        if (operador == null) {
+            throw new ForbiddenOperationException("La cuenta no está vinculada a un operador");
+        }
+        return operador;
     }
 
     private byte[] leerContenido(MultipartFile file) {

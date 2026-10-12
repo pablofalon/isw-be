@@ -1,8 +1,11 @@
 package org.proyecto.presentation;
 
 import org.proyecto.business.AuthService;
+import org.proyecto.business.PermisoService;
 import org.proyecto.business.SessionManager;
 import org.proyecto.entities.CuentaAcceso;
+
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,9 +19,11 @@ public class AuthController {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthService authService;
+    private final PermisoService permisoService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, PermisoService permisoService) {
         this.authService = authService;
+        this.permisoService = permisoService;
     }
 
     @PostMapping("/login")
@@ -42,8 +47,9 @@ public class AuthController {
     }
 
     private ResponseEntity<Object> buildLoginResponse(CuentaAcceso cuenta) {
-        String token = SessionManager.getInstance().createSession(cuenta);
-        return ResponseEntity.ok(LoginResponse.from(token, cuenta));
+        Set<String> permisos = permisoService.permisosDe(cuenta.getId());
+        String token = SessionManager.getInstance().createSession(cuenta, permisos);
+        return ResponseEntity.ok(LoginResponse.from(token, cuenta, permisos));
     }
 
     private String extractToken(String authorizationHeader) {

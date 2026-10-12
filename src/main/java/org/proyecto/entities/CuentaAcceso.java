@@ -9,15 +9,25 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Credenciales de acceso al sistema. Según la observación de modelado del CU23 del documento,
  * ni UsuarioTicket ni Operador tienen usuario/contraseña propios: se vinculan opcionalmente
  * (exactamente una de las dos referencias, según el rol) a esta clase.
+ *
+ * La autorización se resuelve con los componentes de permiso asignados (Composite: grupos y/o
+ * permisos sueltos). El rol queda solo como tipo de cuenta (a qué entidad se vincula) y para
+ * mostrarse en pantalla; no se usa para autorizar.
  */
 @Entity
 @Table(name = "cuentas_acceso")
@@ -45,6 +55,10 @@ public class CuentaAcceso {
     @Column(nullable = false)
     private boolean activa = true;
 
+    /** true mientras la contraseña sea temporal (alta o blanqueo): el primer ingreso exige cambiarla. */
+    @Column(nullable = false)
+    private boolean debeCambiarPassword = false;
+
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "usuario_ticket_id")
     private UsuarioTicket usuarioTicket;
@@ -53,7 +67,22 @@ public class CuentaAcceso {
     @JoinColumn(name = "operador_id")
     private Operador operador;
 
+    @ManyToMany
+    @JoinTable(name = "cuenta_componentes",
+            joinColumns = @JoinColumn(name = "cuenta_id"),
+            inverseJoinColumns = @JoinColumn(name = "componente_id"))
+    private List<ComponentePermiso> componentes = new ArrayList<>();
+
     public CuentaAcceso() {
+    }
+
+    /** Permisos efectivos de la cuenta: unión de lo que aporta cada componente asignado. */
+    public Set<String> obtenerPermisos() {
+        Set<String> permisos = new LinkedHashSet<>();
+        for (ComponentePermiso componente : componentes) {
+            permisos.addAll(componente.obtenerPermisos());
+        }
+        return permisos;
     }
 
     public Long getId() {
@@ -112,6 +141,14 @@ public class CuentaAcceso {
         this.activa = activa;
     }
 
+    public boolean isDebeCambiarPassword() {
+        return debeCambiarPassword;
+    }
+
+    public void setDebeCambiarPassword(boolean debeCambiarPassword) {
+        this.debeCambiarPassword = debeCambiarPassword;
+    }
+
     public UsuarioTicket getUsuarioTicket() {
         return usuarioTicket;
     }
@@ -126,5 +163,13 @@ public class CuentaAcceso {
 
     public void setOperador(Operador operador) {
         this.operador = operador;
+    }
+
+    public List<ComponentePermiso> getComponentes() {
+        return componentes;
+    }
+
+    public void setComponentes(List<ComponentePermiso> componentes) {
+        this.componentes = componentes;
     }
 }

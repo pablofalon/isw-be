@@ -1,53 +1,43 @@
 package org.proyecto.seed;
 
-import org.proyecto.business.CryptoManager;
+import org.proyecto.business.Permisos;
 import org.proyecto.data.CategoriaRepository;
-import org.proyecto.data.CuentaAccesoRepository;
-import org.proyecto.data.OperadorRepository;
+import org.proyecto.data.ComponentePermisoRepository;
 import org.proyecto.data.PrioridadRepository;
 import org.proyecto.data.TicketEstadoRepository;
-import org.proyecto.data.UsuarioTicketRepository;
 import org.proyecto.entities.Categoria;
-import org.proyecto.entities.CuentaAcceso;
+import org.proyecto.entities.ComponentePermiso;
+import org.proyecto.entities.GrupoPermisos;
 import org.proyecto.entities.NivelPrioridad;
-import org.proyecto.entities.Operador;
+import org.proyecto.entities.Permiso;
 import org.proyecto.entities.Prioridad;
-import org.proyecto.entities.Rol;
 import org.proyecto.entities.TicketEstado;
 import org.proyecto.entities.TicketEstadoCodigo;
-import org.proyecto.entities.UsuarioTicket;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-
 /**
- * Carga el catálogo de estados/categorías/prioridades y cuentas de demostración al arrancar,
- * ya que la base H2 es en memoria (se pierde en cada reinicio) y no hay pantalla de alta de
- * usuarios en el alcance de esta iteración (CU24 queda fuera).
+ * Carga los catálogos que el sistema necesita para funcionar: estados, categorías, prioridades y el
+ * árbol de permisos. Es idempotente (solo crea lo que falta), porque la base persiste entre
+ * reinicios. Las cuentas no se crean acá: ver DemoDataSeeder (perfil "demo") y
+ * AdministradorInicialSeeder.
  */
 @Component
+@Order(1)
 public class DataSeeder implements CommandLineRunner {
 
     private final TicketEstadoRepository ticketEstadoRepository;
     private final CategoriaRepository categoriaRepository;
     private final PrioridadRepository prioridadRepository;
-    private final UsuarioTicketRepository usuarioTicketRepository;
-    private final OperadorRepository operadorRepository;
-    private final CuentaAccesoRepository cuentaAccesoRepository;
-    private final CryptoManager cryptoManager;
+    private final ComponentePermisoRepository componentePermisoRepository;
 
     public DataSeeder(TicketEstadoRepository ticketEstadoRepository, CategoriaRepository categoriaRepository,
-                       PrioridadRepository prioridadRepository, UsuarioTicketRepository usuarioTicketRepository,
-                       OperadorRepository operadorRepository, CuentaAccesoRepository cuentaAccesoRepository,
-                       CryptoManager cryptoManager) {
+                       PrioridadRepository prioridadRepository, ComponentePermisoRepository componentePermisoRepository) {
         this.ticketEstadoRepository = ticketEstadoRepository;
         this.categoriaRepository = categoriaRepository;
         this.prioridadRepository = prioridadRepository;
-        this.usuarioTicketRepository = usuarioTicketRepository;
-        this.operadorRepository = operadorRepository;
-        this.cuentaAccesoRepository = cuentaAccesoRepository;
-        this.cryptoManager = cryptoManager;
+        this.componentePermisoRepository = componentePermisoRepository;
     }
 
     @Override
@@ -55,7 +45,7 @@ public class DataSeeder implements CommandLineRunner {
         seedEstados();
         seedCategorias();
         seedPrioridades();
-        seedCuentasDemo();
+        seedPermisos();
     }
 
     private void seedEstados() {
@@ -99,50 +89,56 @@ public class DataSeeder implements CommandLineRunner {
         prioridadRepository.save(new Prioridad(NivelPrioridad.CRITICA, "Bloquea la operación del usuario", 4));
     }
 
-    private void seedCuentasDemo() {
-        if (cuentaAccesoRepository.count() > 0) {
-            return;
-        }
+    /**
+     * Árbol de permisos inicial (Composite). Reproduce exactamente lo que antes permitía cada rol,
+     * y reutiliza GESTION_TICKETS dentro de OPERADOR y de ADMINISTRADOR:
+     *
+     *   USUARIO_FINAL   = {TICKET_CREAR, TICKET_VER_PROPIOS, TICKET_REENVIAR,
+     *                      TICKET_VALIDAR_RESOLUCION, TICKET_REABRIR_PROPIO}
+     *   GESTION_TICKETS = {TICKET_VER_TODOS, TICKET_CLASIFICAR, TICKET_ASIGNAR, TICKET_RESOLVER}
+     *   OPERADOR        = {GESTION_TICKETS, TICKET_REABRIR_OPERATIVO}
+     *   ADMINISTRADOR   = {GESTION_TICKETS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR}
+     */
+    private void seedPermisos() {
 
-        UsuarioTicket juan = nuevoUsuario("Juan", "Pérez", "juan.perez@empresa.com");
-        UsuarioTicket ana = nuevoUsuario("Ana", "Gómez", "ana.gomez@empresa.com");
-        crearCuenta("juan.perez", "usuario123", Rol.USUARIO, juan, null);
-        crearCuenta("ana.gomez", "usuario123", Rol.USUARIO, ana, null);
+        Permiso crear = permiso(Permisos.TICKET_CREAR, "Registrar tickets y adjuntar archivos");
+        Permiso verPropios = permiso(Permisos.TICKET_VER_PROPIOS, "Consultar los tickets propios");
+        Permiso verTodos = permiso(Permisos.TICKET_VER_TODOS, "Consultar el detalle de cualquier ticket");
+        Permiso reenviar = permiso(Permisos.TICKET_REENVIAR, "Corregir y reenviar un ticket observado");
+        Permiso validarResolucion = permiso(Permisos.TICKET_VALIDAR_RESOLUCION, "Confirmar la resolución de un ticket propio");
+        Permiso reabrirPropio = permiso(Permisos.TICKET_REABRIR_PROPIO, "Reabrir un ticket propio cerrado");
+        Permiso clasificar = permiso(Permisos.TICKET_CLASIFICAR, "Clasificar, priorizar, validar u observar tickets");
+        Permiso asignar = permiso(Permisos.TICKET_ASIGNAR, "Asignar y reasignar operadores");
+        Permiso resolver = permiso(Permisos.TICKET_RESOLVER, "Resolver y cerrar tickets asignados");
+        Permiso reabrirOperativo = permiso(Permisos.TICKET_REABRIR_OPERATIVO, "Reabrir un ticket cerrado que tuvo asignado");
+        Permiso administrarSeguridad = permiso(Permisos.SEGURIDAD_ADMINISTRAR, "Administrar grupos, permisos y su asignación");
+        Permiso administrarUsuarios = permiso(Permisos.USUARIOS_ADMINISTRAR, "Alta, modificación y baja de usuarios");
 
-        Operador soporte1 = nuevoOperador("Operador", "Soporte 1", "soporte1@empresa.com", "soporte técnico");
-        Operador soporte2 = nuevoOperador("Operador", "Soporte 2", "soporte2@empresa.com", "reportes");
-        crearCuenta("operador1", "operador123", Rol.OPERADOR, null, soporte1);
-        crearCuenta("operador2", "operador123", Rol.OPERADOR, null, soporte2);
-
-        Operador admin = nuevoOperador("Admin", "Sistema", "admin@empresa.com", "administración");
-        crearCuenta("admin", "admin123", Rol.ADMINISTRADOR, null, admin);
+        grupo("USUARIO_FINAL", "Usuario que registra y sigue sus reclamos",
+                crear, verPropios, reenviar, validarResolucion, reabrirPropio);
+        GrupoPermisos gestion = grupo("GESTION_TICKETS", "Tratamiento operativo de tickets",
+                verTodos, clasificar, asignar, resolver);
+        grupo("OPERADOR", "Operador de soporte", gestion, reabrirOperativo);
+        grupo("ADMINISTRADOR", "Administrador del sistema", gestion, administrarSeguridad, administrarUsuarios);
     }
 
-    private UsuarioTicket nuevoUsuario(String nombre, String apellido, String correo) {
-        UsuarioTicket usuario = new UsuarioTicket();
-        usuario.setNombre(nombre);
-        usuario.setApellido(apellido);
-        usuario.setCorreoElectronico(correo);
-        usuario.setFechaRegistro(LocalDateTime.now());
-        return usuarioTicketRepository.save(usuario);
+    /** Devuelve el permiso existente o lo crea si falta (la base persiste entre reinicios). */
+    private Permiso permiso(String codigo, String descripcion) {
+        return (Permiso) componentePermisoRepository.findByCodigo(codigo)
+                .orElseGet(() -> componentePermisoRepository.save(new Permiso(codigo, descripcion)));
     }
 
-    private Operador nuevoOperador(String nombre, String apellido, String correo, String area) {
-        Operador operador = new Operador();
-        operador.setNombre(nombre);
-        operador.setApellido(apellido);
-        operador.setCorreoElectronico(correo);
-        operador.setArea(area);
-        return operadorRepository.save(operador);
-    }
-
-    private void crearCuenta(String login, String password, Rol rol, UsuarioTicket usuario, Operador operador) {
-        CuentaAcceso cuenta = new CuentaAcceso();
-        cuenta.setUsuarioLogin(login);
-        cuenta.setPasswordHash(cryptoManager.hash(password));
-        cuenta.setRol(rol);
-        cuenta.setUsuarioTicket(usuario);
-        cuenta.setOperador(operador);
-        cuentaAccesoRepository.save(cuenta);
+    /**
+     * Crea el grupo solo si no existe. Si ya existe no se toca: el administrador pudo haberlo
+     * modificado desde el ABM de seguridad.
+     */
+    private GrupoPermisos grupo(String codigo, String descripcion, ComponentePermiso... hijos) {
+        return (GrupoPermisos) componentePermisoRepository.findByCodigo(codigo).orElseGet(() -> {
+            GrupoPermisos grupo = new GrupoPermisos(codigo, descripcion);
+            for (ComponentePermiso hijo : hijos) {
+                grupo.agregar(hijo);
+            }
+            return componentePermisoRepository.save(grupo);
+        });
     }
 }
