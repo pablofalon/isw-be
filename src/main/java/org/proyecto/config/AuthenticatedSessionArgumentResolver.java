@@ -1,6 +1,8 @@
 package org.proyecto.config;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.proyecto.business.ForbiddenOperationException;
+import org.proyecto.business.SesionActiva;
 import org.proyecto.business.SessionManager;
 import org.proyecto.entities.CuentaAcceso;
 import org.springframework.core.MethodParameter;
@@ -18,7 +20,8 @@ public class AuthenticatedSessionArgumentResolver implements HandlerMethodArgume
     @Override
     public boolean supportsParameter(MethodParameter parameter) {
         return parameter.hasParameterAnnotation(AuthenticatedSession.class)
-                && parameter.getParameterType().equals(CuentaAcceso.class);
+                && (parameter.getParameterType().equals(SesionActiva.class)
+                || parameter.getParameterType().equals(CuentaAcceso.class));
     }
 
     @Override
@@ -32,8 +35,13 @@ public class AuthenticatedSessionArgumentResolver implements HandlerMethodArgume
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing session token");
         }
 
-        return SessionManager.getInstance().getSession(token)
+        SesionActiva sesion = SessionManager.getInstance().getSession(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid session token"));
+        AuthenticatedSession anotacion = parameter.getParameterAnnotation(AuthenticatedSession.class);
+        if (sesion.debeCambiarPassword() && (anotacion == null || !anotacion.permitePasswordTemporal())) {
+            throw new ForbiddenOperationException("Debe cambiar la contraseña temporal antes de continuar");
+        }
+        return parameter.getParameterType().equals(SesionActiva.class) ? sesion : sesion.cuenta();
     }
 
     private String extractToken(String authorizationHeader) {

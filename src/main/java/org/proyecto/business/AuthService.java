@@ -15,7 +15,7 @@ import java.util.Optional;
 @Service
 public class AuthService {
 
-    private static final int MAXIMO_INTENTOS_FALLIDOS = 5;
+    public static final int MAXIMO_INTENTOS_FALLIDOS = 5;
 
     private final CuentaAccesoRepository cuentaAccesoRepository;
     private final CryptoManager cryptoManager;
