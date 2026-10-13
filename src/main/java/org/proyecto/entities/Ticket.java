@@ -44,6 +44,10 @@ public class Ticket {
     @Column(length = 2000)
     private String motivoReapertura;
 
+    /** Descripción de la resolución aplicada (CU09); el cierre (CU17) registra la solución definitiva. */
+    @Column(length = 2000)
+    private String resolucion;
+
     @Column(nullable = false)
     private boolean validado = false;
 
@@ -152,6 +156,14 @@ public class Ticket {
 
     public void setMotivoReapertura(String motivoReapertura) {
         this.motivoReapertura = motivoReapertura;
+    }
+
+    public String getResolucion() {
+        return resolucion;
+    }
+
+    public void setResolucion(String resolucion) {
+        this.resolucion = resolucion;
     }
 
     public boolean isValidado() {

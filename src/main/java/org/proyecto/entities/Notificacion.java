@@ -2,6 +2,8 @@ package org.proyecto.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -13,8 +15,9 @@ import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
 /**
- * Registro de notificación interna (RF16). El alcance del proyecto excluye integraciones con
- * canales externos (ver G02 - Exclusiones), por lo que "tipoCanal" hoy solo persiste IN_APP.
+ * Notificación de CU16 (RF16). El alcance del proyecto excluye integraciones con canales externos
+ * (ver G02 - Exclusiones), por lo que "tipoCanal" hoy solo persiste IN_APP. "fechaEnvio" guarda el
+ * momento del último intento de entrega.
  */
 @Entity
 @Table(name = "notificaciones")
@@ -34,7 +37,16 @@ public class Notificacion {
     private LocalDateTime fechaEnvio;
 
     @Column(nullable = false)
-    private String estadoEnvio = "ENVIADA";
+    @Enumerated(EnumType.STRING)
+    private EstadoNotificacion estadoEnvio = EstadoNotificacion.PENDIENTE;
+
+    /** Intentos de entrega realizados (CU16 FA1). Las filas anteriores a este campo quedan en null. */
+    private Integer intentos;
+
+    /** Ticket sobre el que informa la notificación (CU16 postcondición 1). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ticket_id")
+    private Ticket ticket;
 
     private LocalDateTime fechaLectura;
 
@@ -85,12 +97,28 @@ public class Notificacion {
         this.fechaEnvio = fechaEnvio;
     }
 
-    public String getEstadoEnvio() {
+    public EstadoNotificacion getEstadoEnvio() {
         return estadoEnvio;
     }
 
-    public void setEstadoEnvio(String estadoEnvio) {
+    public void setEstadoEnvio(EstadoNotificacion estadoEnvio) {
         this.estadoEnvio = estadoEnvio;
+    }
+
+    public int getIntentos() {
+        return intentos == null ? 0 : intentos;
+    }
+
+    public void setIntentos(int intentos) {
+        this.intentos = intentos;
+    }
+
+    public Ticket getTicket() {
+        return ticket;
+    }
+
+    public void setTicket(Ticket ticket) {
+        this.ticket = ticket;
     }
 
     public LocalDateTime getFechaLectura() {

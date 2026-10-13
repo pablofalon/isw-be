@@ -1,7 +1,9 @@
 package org.proyecto.presentation;
 
+import org.proyecto.business.CuentaNoDisponibleException;
 import org.proyecto.business.ForbiddenOperationException;
 import org.proyecto.business.InvalidTicketOperationException;
+import org.proyecto.business.LimitesAdjuntos;
 import org.proyecto.business.OperacionSeguridadInvalidaException;
 import org.proyecto.business.RecursoNoEncontradoException;
 import org.proyecto.business.TicketNotFoundException;
@@ -10,9 +12,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private final LimitesAdjuntos limitesAdjuntos;
+
+    public ApiExceptionHandler(LimitesAdjuntos limitesAdjuntos) {
+        this.limitesAdjuntos = limitesAdjuntos;
+    }
 
     @ExceptionHandler(TicketNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(TicketNotFoundException ex) {
@@ -37,5 +46,17 @@ public class ApiExceptionHandler {
     @ExceptionHandler({OperacionSeguridadInvalidaException.class, ComposicionInvalidaException.class})
     public ResponseEntity<ErrorResponse> handleSeguridadInvalida(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    @ExceptionHandler(CuentaNoDisponibleException.class)
+    public ResponseEntity<ErrorResponse> handleCuentaNoDisponible(CuentaNoDisponibleException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    /** Spring corta el multipart antes de llegar al servicio; se responde con el mismo mensaje de CU02 FA2. */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleArchivoDemasiadoGrande(MaxUploadSizeExceededException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(
+                "El archivo supera el tamaño máximo permitido (" + limitesAdjuntos.getTamanioMaximoMb() + " MB)"));
     }
 }

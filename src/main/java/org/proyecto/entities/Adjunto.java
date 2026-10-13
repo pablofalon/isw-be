@@ -43,6 +43,11 @@ public class Adjunto {
     @Column(nullable = false)
     private byte[] contenido;
 
+    /** Operador que subió el archivo como evidencia de una acción (CU08 FA2); null si lo subió el titular. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "operador_autor_id")
+    private Operador operadorAutor;
+
     public Adjunto() {
     }
 
@@ -108,5 +113,13 @@ public class Adjunto {
 
     public void setContenido(byte[] contenido) {
         this.contenido = contenido;
+    }
+
+    public Operador getOperadorAutor() {
+        return operadorAutor;
+    }
+
+    public void setOperadorAutor(Operador operadorAutor) {
+        this.operadorAutor = operadorAutor;
     }
 }

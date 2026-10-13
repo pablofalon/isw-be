@@ -24,10 +24,18 @@ public class TicketResponse {
     private LocalDateTime fechaCierre;
     private String motivoCierre;
     private String motivoReapertura;
+    private String resolucion;
     private boolean validado;
     private List<AdjuntoResponse> adjuntos = new ArrayList<>();
     private List<HistorialEstadoResponse> historialEstados = new ArrayList<>();
     private List<HistorialAsignacionResponse> historialAsignaciones = new ArrayList<>();
+    /** CU07: estados a los que quien consulta puede llevar el ticket (vacío si no le corresponde operarlo). */
+    private List<TicketEstadoCodigo> transicionesDisponibles = new ArrayList<>();
+    /** CU08: si quien consulta puede registrar acciones sobre el ticket. */
+    private boolean puedeRegistrarAccion;
+    /** CU15: comentarios en orden cronológico y si quien consulta puede agregar uno. */
+    private List<ComentarioResponse> comentarios = new ArrayList<>();
+    private boolean puedeComentar;
 
     public TicketResponse() {
     }
@@ -49,6 +57,7 @@ public class TicketResponse {
         response.fechaCierre = ticket.getFechaCierre();
         response.motivoCierre = ticket.getMotivoCierre();
         response.motivoReapertura = ticket.getMotivoReapertura();
+        response.resolucion = ticket.getResolucion();
         response.validado = ticket.isValidado();
         return response;
     }
@@ -203,5 +212,45 @@ public class TicketResponse {
 
     public void setHistorialAsignaciones(List<HistorialAsignacionResponse> historialAsignaciones) {
         this.historialAsignaciones = historialAsignaciones;
+    }
+
+    public String getResolucion() {
+        return resolucion;
+    }
+
+    public void setResolucion(String resolucion) {
+        this.resolucion = resolucion;
+    }
+
+    public List<TicketEstadoCodigo> getTransicionesDisponibles() {
+        return transicionesDisponibles;
+    }
+
+    public void setTransicionesDisponibles(List<TicketEstadoCodigo> transicionesDisponibles) {
+        this.transicionesDisponibles = transicionesDisponibles;
+    }
+
+    public boolean isPuedeRegistrarAccion() {
+        return puedeRegistrarAccion;
+    }
+
+    public void setPuedeRegistrarAccion(boolean puedeRegistrarAccion) {
+        this.puedeRegistrarAccion = puedeRegistrarAccion;
+    }
+
+    public List<ComentarioResponse> getComentarios() {
+        return comentarios;
+    }
+
+    public void setComentarios(List<ComentarioResponse> comentarios) {
+        this.comentarios = comentarios;
+    }
+
+    public boolean isPuedeComentar() {
+        return puedeComentar;
+    }
+
+    public void setPuedeComentar(boolean puedeComentar) {
+        this.puedeComentar = puedeComentar;
     }
 }

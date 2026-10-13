@@ -7,6 +7,7 @@ public class CategoriaResponse {
     private Long id;
     private String nombre;
     private String descripcion;
+    private String area;
 
     public CategoriaResponse() {
     }
@@ -19,6 +20,7 @@ public class CategoriaResponse {
         response.id = categoria.getId();
         response.nombre = categoria.getNombre();
         response.descripcion = categoria.getDescripcion();
+        response.area = categoria.getArea();
         return response;
     }
 
@@ -44,5 +46,13 @@ public class CategoriaResponse {
 
     public void setDescripcion(String descripcion) {
         this.descripcion = descripcion;
+    }
+
+    public String getArea() {
+        return area;
+    }
+
+    public void setArea(String area) {
+        this.area = area;
     }
 }

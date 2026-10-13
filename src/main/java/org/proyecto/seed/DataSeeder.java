@@ -72,11 +72,11 @@ public class DataSeeder implements CommandLineRunner {
         if (categoriaRepository.count() > 0) {
             return;
         }
-        categoriaRepository.save(new Categoria("Problemas de acceso", "Inconvenientes de login o permisos"));
-        categoriaRepository.save(new Categoria("Reportes", "Errores o solicitudes sobre reportes"));
-        categoriaRepository.save(new Categoria("Rendimiento", "Lentitud o demoras del sistema"));
-        categoriaRepository.save(new Categoria("Solicitudes", "Pedidos de nuevas funcionalidades"));
-        categoriaRepository.save(new Categoria("Notificaciones", "Problemas con el envío de notificaciones"));
+        categoriaRepository.save(new Categoria("Problemas de acceso", "Inconvenientes de login o permisos", "soporte técnico"));
+        categoriaRepository.save(new Categoria("Reportes", "Errores o solicitudes sobre reportes", "reportes"));
+        categoriaRepository.save(new Categoria("Rendimiento", "Lentitud o demoras del sistema", "soporte técnico"));
+        categoriaRepository.save(new Categoria("Solicitudes", "Pedidos de nuevas funcionalidades", "desarrollo"));
+        categoriaRepository.save(new Categoria("Notificaciones", "Problemas con el envío de notificaciones", "soporte técnico"));
     }
 
     private void seedPrioridades() {
@@ -97,7 +97,7 @@ public class DataSeeder implements CommandLineRunner {
      *                      TICKET_VALIDAR_RESOLUCION, TICKET_REABRIR_PROPIO}
      *   GESTION_TICKETS = {TICKET_VER_TODOS, TICKET_CLASIFICAR, TICKET_ASIGNAR, TICKET_RESOLVER}
      *   OPERADOR        = {GESTION_TICKETS, TICKET_REABRIR_OPERATIVO}
-     *   ADMINISTRADOR   = {GESTION_TICKETS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR}
+     *   ADMINISTRADOR   = {GESTION_TICKETS, TICKET_GESTIONAR_TODOS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR}
      */
     private void seedPermisos() {
 
@@ -109,8 +109,9 @@ public class DataSeeder implements CommandLineRunner {
         Permiso reabrirPropio = permiso(Permisos.TICKET_REABRIR_PROPIO, "Reabrir un ticket propio cerrado");
         Permiso clasificar = permiso(Permisos.TICKET_CLASIFICAR, "Clasificar, priorizar, validar u observar tickets");
         Permiso asignar = permiso(Permisos.TICKET_ASIGNAR, "Asignar y reasignar operadores");
-        Permiso resolver = permiso(Permisos.TICKET_RESOLVER, "Resolver y cerrar tickets asignados");
+        Permiso resolver = permiso(Permisos.TICKET_RESOLVER, "Registrar acciones, resolver y cerrar tickets asignados");
         Permiso reabrirOperativo = permiso(Permisos.TICKET_REABRIR_OPERATIVO, "Reabrir un ticket cerrado que tuvo asignado");
+        Permiso gestionarTodos = permiso(Permisos.TICKET_GESTIONAR_TODOS, "Cerrar o actualizar tickets asignados a otro operador");
         Permiso administrarSeguridad = permiso(Permisos.SEGURIDAD_ADMINISTRAR, "Administrar grupos, permisos y su asignación");
         Permiso administrarUsuarios = permiso(Permisos.USUARIOS_ADMINISTRAR, "Alta, modificación y baja de usuarios");
 
@@ -119,7 +120,7 @@ public class DataSeeder implements CommandLineRunner {
         GrupoPermisos gestion = grupo("GESTION_TICKETS", "Tratamiento operativo de tickets",
                 verTodos, clasificar, asignar, resolver);
         grupo("OPERADOR", "Operador de soporte", gestion, reabrirOperativo);
-        grupo("ADMINISTRADOR", "Administrador del sistema", gestion, administrarSeguridad, administrarUsuarios);
+        grupo("ADMINISTRADOR", "Administrador del sistema", gestion, gestionarTodos, administrarSeguridad, administrarUsuarios);
     }
 
     /** Devuelve el permiso existente o lo crea si falta (la base persiste entre reinicios). */

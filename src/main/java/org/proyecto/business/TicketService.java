@@ -2,6 +2,7 @@ package org.proyecto.business;
 
 import org.proyecto.data.AdjuntoRepository;
 import org.proyecto.data.CategoriaRepository;
+import org.proyecto.data.ComentarioRepository;
 import org.proyecto.data.HistorialAsignacionRepository;
 import org.proyecto.data.OperadorRepository;
 import org.proyecto.data.PrioridadRepository;
@@ -9,6 +10,7 @@ import org.proyecto.data.TicketEstadoRepository;
 import org.proyecto.data.TicketRepository;
 import org.proyecto.entities.Adjunto;
 import org.proyecto.entities.Categoria;
+import org.proyecto.entities.Comentario;
 import org.proyecto.entities.HistorialAsignacion;
 import org.proyecto.entities.HistorialEstado;
 import org.proyecto.entities.Operador;
@@ -17,13 +19,16 @@ import org.proyecto.entities.Ticket;
 import org.proyecto.entities.TicketEstado;
 import org.proyecto.entities.TicketEstadoCodigo;
 import org.proyecto.entities.TipoAccionAsignacion;
+import org.proyecto.entities.TipoRegistroHistorial;
 import org.proyecto.entities.UsuarioTicket;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Máquina de estados del ticket según los diagramas de transición del documento (Recepción de
@@ -39,10 +44,7 @@ import java.util.Set;
 @Service
 public class TicketService {
 
-    private static final Set<String> EXTENSIONES_PERMITIDAS =
-            Set.of("jpg", "jpeg", "png", "pdf", "docx", "xlsx");
-
-    private static final long TAMANIO_MAXIMO_BYTES = 5L * 1024 * 1024;
+    private static final int LARGO_MAXIMO_TEXTO = 2000;
 
     private static final Set<TicketEstadoCodigo> ESTADOS_EDITABLES_ADJUNTOS =
             Set.of(TicketEstadoCodigo.NUEVO, TicketEstadoCodigo.PENDIENTE_CORRECCION, TicketEstadoCodigo.EN_ANALISIS);
@@ -55,12 +57,15 @@ public class TicketService {
     private final PrioridadRepository prioridadRepository;
     private final OperadorRepository operadorRepository;
     private final NotificacionService notificacionService;
+    private final LimitesAdjuntos limitesAdjuntos;
+    private final ComentarioRepository comentarioRepository;
 
     public TicketService(TicketRepository ticketRepository, AdjuntoRepository adjuntoRepository,
                           HistorialAsignacionRepository historialAsignacionRepository,
                           TicketEstadoRepository ticketEstadoRepository, CategoriaRepository categoriaRepository,
                           PrioridadRepository prioridadRepository, OperadorRepository operadorRepository,
-                          NotificacionService notificacionService) {
+                          NotificacionService notificacionService, LimitesAdjuntos limitesAdjuntos,
+                          ComentarioRepository comentarioRepository) {
         this.ticketRepository = ticketRepository;
         this.adjuntoRepository = adjuntoRepository;
         this.historialAsignacionRepository = historialAsignacionRepository;
@@ -69,6 +74,8 @@ public class TicketService {
         this.prioridadRepository = prioridadRepository;
         this.operadorRepository = operadorRepository;
         this.notificacionService = notificacionService;
+        this.limitesAdjuntos = limitesAdjuntos;
+        this.comentarioRepository = comentarioRepository;
     }
 
     // ---- CU01 - Registrar ticket ----
@@ -80,49 +87,60 @@ public class TicketService {
         if (descripcion == null || descripcion.isBlank()) {
             throw new InvalidTicketOperationException("La descripción es obligatoria");
         }
+        if (idCategoria == null) {
+            throw new InvalidTicketOperationException("La categoría es obligatoria");
+        }
 
         Ticket ticket = new Ticket();
         ticket.setTitulo(titulo);
         ticket.setDescripcion(descripcion);
         ticket.setUsuario(usuario);
         ticket.setFechaCreacion(LocalDateTime.now());
-        if (idCategoria != null) {
-            ticket.setCategoria(buscarCategoria(idCategoria));
-        }
+        ticket.setCategoria(buscarCategoriaActiva(idCategoria));
         if (idPrioridadSugerida != null) {
             ticket.setPrioridadSugerida(buscarPrioridad(idPrioridadSugerida));
         }
 
         aplicarEstado(ticket, TicketEstadoCodigo.NUEVO, usuario, null, "Registro del reclamo", null);
-        return ticketRepository.save(ticket);
+        ticket = ticketRepository.save(ticket);
+
+        // Paso 12: aviso al área de operadores de la categoría.
+        for (Operador operador : operadoresDelArea(ticket.getCategoria())) {
+            notificacionService.notificarOperador(ticket, operador,
+                    "Nuevo ticket " + numero(ticket) + ": " + ticket.getTitulo());
+        }
+        return ticket;
     }
 
     // ---- CU02 - Adjuntar archivo ----
     public Adjunto adjuntarArchivo(Long ticketId, Long usuarioId, String nombreArchivo,
                                     String tipoArchivo, long tamano, byte[] contenido, String descripcion) {
         Ticket ticket = buscarTicketPropio(ticketId, usuarioId);
+        requireAdjuntosEditables(ticket);
 
-        if (!ESTADOS_EDITABLES_ADJUNTOS.contains(ticket.getEstadoActual().getCodigo())) {
-            throw new InvalidTicketOperationException(
-                    "El ticket no admite nuevos adjuntos en su estado actual (" + ticket.getEstadoActual().getNombre() + ")");
-        }
-        if (!tieneExtensionPermitida(nombreArchivo)) {
-            throw new InvalidTicketOperationException(
-                    "Formato de archivo no permitido. Formatos válidos: JPG, PNG, PDF, DOCX, XLSX");
-        }
-        if (tamano > TAMANIO_MAXIMO_BYTES) {
-            throw new InvalidTicketOperationException("El archivo supera el tamaño máximo permitido (5 MB)");
-        }
+        Adjunto adjunto = guardarAdjunto(ticket, nombreArchivo, tipoArchivo, tamano, contenido, descripcion, null);
 
-        Adjunto adjunto = new Adjunto();
-        adjunto.setTicket(ticket);
-        adjunto.setNombreArchivo(nombreArchivo);
-        adjunto.setTipoArchivo(tipoArchivo);
-        adjunto.setTamano(tamano);
-        adjunto.setDescripcion(descripcion);
-        adjunto.setFechaCarga(LocalDateTime.now());
-        adjunto.setContenido(contenido);
-        return adjuntoRepository.save(adjunto);
+        registrarEvento(ticket, ticket.getUsuario(), null, "Adjuntó el archivo " + nombreArchivo);
+        ticketRepository.save(ticket);
+        return adjunto;
+    }
+
+    /** FA3 de CU02: el titular elimina un adjunto mientras el ticket siga en un estado editable. */
+    public Ticket eliminarAdjunto(Long ticketId, Long adjuntoId, Long usuarioId) {
+        Ticket ticket = buscarTicketPropio(ticketId, usuarioId);
+        requireAdjuntosEditables(ticket);
+
+        Adjunto adjunto = adjuntoRepository.findById(adjuntoId)
+                .filter(a -> a.getTicket().getId().equals(ticketId))
+                .orElseThrow(() -> new RecursoNoEncontradoException("Adjunto inexistente: " + adjuntoId));
+        if (adjunto.getOperadorAutor() != null) {
+            throw new InvalidTicketOperationException("La evidencia que cargó el operador no se puede eliminar");
+        }
+        ticket.getAdjuntos().remove(adjunto);
+        adjuntoRepository.delete(adjunto);
+
+        registrarEvento(ticket, ticket.getUsuario(), null, "Eliminó el archivo " + adjunto.getNombreArchivo());
+        return ticketRepository.save(ticket);
     }
 
     // ---- CU03 - Consultar mis tickets ----
@@ -143,27 +161,35 @@ public class TicketService {
     }
 
     // ---- CU04 - Clasificar ticket ----
-    public Ticket clasificar(Long ticketId, Long idCategoria) {
+    public Ticket clasificar(Long ticketId, Long idCategoria, Operador operador) {
         Ticket ticket = buscarTicketExistente(ticketId);
         requireEstadoClasificable(ticket);
 
-        Categoria categoria = buscarCategoria(idCategoria);
+        Categoria anterior = ticket.getCategoria();
+        Categoria categoria = buscarCategoriaActiva(idCategoria);
         ticket.setCategoria(categoria);
-        ticket.setFechaUltimaActualizacion(LocalDateTime.now());
+        // FA1: si ya tenía categoría queda como reclasificación.
+        registrarEvento(ticket, null, operador, anterior == null
+                ? "Clasificado en " + categoria.getNombre()
+                : "Reclasificado de " + anterior.getNombre() + " a " + categoria.getNombre());
         return ticketRepository.save(ticket);
     }
 
     // ---- CU05 - Asignar prioridad ----
-    public Ticket asignarPrioridad(Long ticketId, Long idPrioridad) {
+    public Ticket asignarPrioridad(Long ticketId, Long idPrioridad, Operador operador) {
         Ticket ticket = buscarTicketExistente(ticketId);
         requireEstadoClasificable(ticket);
         if (ticket.getCategoria() == null) {
             throw new InvalidTicketOperationException("El ticket debe estar clasificado antes de asignar prioridad");
         }
 
+        Prioridad anterior = ticket.getPrioridad();
         Prioridad prioridad = buscarPrioridad(idPrioridad);
         ticket.setPrioridad(prioridad);
-        ticket.setFechaUltimaActualizacion(LocalDateTime.now());
+        // FA1: si ya tenía prioridad queda como repriorización.
+        registrarEvento(ticket, null, operador, anterior == null
+                ? "Prioridad asignada: " + prioridad.getNivel()
+                : "Repriorizado de " + anterior.getNivel() + " a " + prioridad.getNivel());
         return ticketRepository.save(ticket);
     }
 
@@ -189,8 +215,8 @@ public class TicketService {
 
         aplicarEstado(ticket, TicketEstadoCodigo.PENDIENTE_CORRECCION, null, operador, observacion, null);
         ticket = ticketRepository.save(ticket);
-        notificacionService.notificarUsuario(ticket.getUsuario(),
-                "Tu ticket #" + ticket.getId() + " necesita corrección: " + observacion);
+        notificacionService.notificarUsuario(ticket, ticket.getUsuario(),
+                "Tu ticket " + numero(ticket) + " necesita corrección: " + observacion);
         return ticket;
     }
 
@@ -232,8 +258,8 @@ public class TicketService {
         ticket = ticketRepository.save(ticket);
 
         registrarAsignacion(ticket, null, nuevoOperador, responsable, "Asignación inicial", TipoAccionAsignacion.ASIGNACION);
-        notificacionService.notificarOperador(nuevoOperador,
-                "Se te asignó el ticket #" + ticket.getId() + ": " + ticket.getTitulo());
+        notificacionService.notificarOperador(ticket, nuevoOperador,
+                "Se te asignó el ticket " + numero(ticket) + ": " + ticket.getTitulo());
         return ticket;
     }
 
@@ -261,10 +287,10 @@ public class TicketService {
         ticket = ticketRepository.save(ticket);
 
         registrarAsignacion(ticket, operadorAnterior, operadorNuevo, responsable, motivo, TipoAccionAsignacion.REASIGNACION);
-        notificacionService.notificarOperador(operadorNuevo,
-                "Se te reasignó el ticket #" + ticket.getId() + ": " + motivo);
-        notificacionService.notificarOperador(operadorAnterior,
-                "El ticket #" + ticket.getId() + " fue reasignado: " + motivo);
+        notificacionService.notificarOperador(ticket, operadorNuevo,
+                "Se te reasignó el ticket " + numero(ticket) + ": " + motivo);
+        notificacionService.notificarOperador(ticket, operadorAnterior,
+                "El ticket " + numero(ticket) + " fue reasignado: " + motivo);
         return ticket;
     }
 
@@ -277,43 +303,174 @@ public class TicketService {
                 TicketEstadoCodigo.VALIDADO);
     }
 
-    // ---- Transición operativa hacia RESUELTO (precondición de CU17) ----
-    public Ticket marcarResuelto(Long ticketId, Operador operador) {
+    // ---- CU07 - Actualizar estado del ticket ----
+
+    /**
+     * Estados a los que CU07 deja pasar al operador y el permiso que exige cada uno. Las demás
+     * transiciones (validación, asignación, corrección) tienen su propio caso de uso.
+     */
+    private static final Map<TicketEstadoCodigo, String> PERMISO_POR_DESTINO = Map.of(
+            TicketEstadoCodigo.RESUELTO, Permisos.TICKET_RESOLVER,
+            TicketEstadoCodigo.CERRADO, Permisos.TICKET_RESOLVER,
+            TicketEstadoCodigo.REABIERTO, Permisos.TICKET_REABRIR_OPERATIVO);
+
+    /** Paso 2: estados posibles desde el actual para este operador (vacío si no le corresponde operar). */
+    public List<TicketEstadoCodigo> transicionesDisponibles(Ticket ticket, Operador operador, Set<String> permisos) {
+        boolean gestionaTodos = permisos.contains(Permisos.TICKET_GESTIONAR_TODOS);
+        if (operador == null || ticket.getOperador() == null || (!gestionaTodos && !esOperadorAsignado(ticket, operador))) {
+            return List.of();
+        }
+        return ticket.getEstadoActual().getCodigo().siguientes().stream()
+                .filter(PERMISO_POR_DESTINO::containsKey)
+                .filter(destino -> gestionaTodos || permisos.contains(PERMISO_POR_DESTINO.get(destino)))
+                .sorted()
+                .toList();
+    }
+
+    /**
+     * Valida la transición contra la máquina de estados (FA1) y delega en el caso de uso del estado
+     * destino, que exige su texto (FA2): resolución (CU09), solución (CU17) o motivo (CU19).
+     */
+    public Ticket actualizarEstado(Long ticketId, TicketEstadoCodigo destino, String observacion,
+                                   Operador operador, Set<String> permisos) {
+        if (destino == null) {
+            throw new InvalidTicketOperationException("Debe seleccionar el nuevo estado");
+        }
         Ticket ticket = buscarTicketExistente(ticketId);
-
-        if (ticket.getOperador() == null || !ticket.getOperador().getId().equals(operador.getId())) {
-            throw new InvalidTicketOperationException("Solo el operador asignado puede resolver el ticket");
-        }
-        TicketEstadoCodigo estadoActual = ticket.getEstadoActual().getCodigo();
-        if (estadoActual != TicketEstadoCodigo.EN_ANALISIS && estadoActual != TicketEstadoCodigo.REABIERTO) {
-            throw new InvalidTicketOperationException(
-                    "El ticket no se puede marcar como resuelto desde su estado actual (" + ticket.getEstadoActual().getNombre() + ")");
+        List<TicketEstadoCodigo> posibles = transicionesDisponibles(ticket, operador, permisos);
+        if (!posibles.contains(destino)) {
+            throw new InvalidTicketOperationException("No se puede pasar de " + ticket.getEstadoActual().getCodigo()
+                    + " a " + destino + ". " + (posibles.isEmpty()
+                    ? "No tenés cambios de estado disponibles para este ticket."
+                    : "Estados posibles: " + posibles.stream().map(Enum::name).collect(Collectors.joining(", "))));
         }
 
-        aplicarEstado(ticket, TicketEstadoCodigo.RESUELTO, null, operador, "Marcado como resuelto", null);
+        boolean gestionaTodos = permisos.contains(Permisos.TICKET_GESTIONAR_TODOS);
+        return switch (destino) {
+            case RESUELTO -> resolver(ticketId, operador, observacion, gestionaTodos);
+            case CERRADO -> cerrarTicket(ticketId, operador, observacion, gestionaTodos);
+            case REABIERTO -> reabrirTicketPorOperador(ticketId, operador, observacion, gestionaTodos);
+            default -> throw new IllegalStateException("Destino sin caso de uso: " + destino);
+        };
+    }
+
+    // ---- CU08 - Registrar acciones sobre ticket ----
+    public boolean puedeRegistrarAccion(Ticket ticket, Operador operador) {
+        return operador != null && esOperadorAsignado(ticket, operador)
+                && ticket.getEstadoActual().getCodigo() != TicketEstadoCodigo.CERRADO;
+    }
+
+    /** nombreArchivo null = acción sin adjunto; con archivo es el FA2 (evidencia, mismas reglas que CU02). */
+    public Ticket registrarAccion(Long ticketId, Operador operador, String descripcion, String nombreArchivo,
+                                  String tipoArchivo, long tamano, byte[] contenido) {
+        requireTexto(descripcion, "La descripción de la acción es obligatoria");
+        Ticket ticket = buscarTicketExistente(ticketId);
+        if (!esOperadorAsignado(ticket, operador)) {
+            throw new InvalidTicketOperationException("Solo el operador asignado puede registrar acciones sobre el ticket");
+        }
+        if (!puedeRegistrarAccion(ticket, operador)) {
+            throw new InvalidTicketOperationException("No se pueden registrar acciones sobre un ticket cerrado");
+        }
+
+        String detalleAdjunto = null;
+        if (nombreArchivo != null) {
+            guardarAdjunto(ticket, nombreArchivo, tipoArchivo, tamano, contenido, descripcion, operador);
+            detalleAdjunto = "Evidencia adjunta: " + nombreArchivo;
+        }
+        agregarHistorial(ticket, TipoRegistroHistorial.ACCION, null, operador, descripcion, detalleAdjunto);
         return ticketRepository.save(ticket);
     }
 
-    // ---- CU17 - Cerrar ticket ----
-    public Ticket cerrarTicket(Long ticketId, Operador operador, String motivoCierre) {
+    // ---- CU09 - Resolver ticket ----
+    public Ticket resolver(Long ticketId, Operador operador, String descripcion, boolean gestionaTodos) {
         Ticket ticket = buscarTicketExistente(ticketId);
 
-        if (ticket.getOperador() == null || !ticket.getOperador().getId().equals(operador.getId())) {
+        if (!gestionaTodos && !esOperadorAsignado(ticket, operador)) {
+            throw new InvalidTicketOperationException("Solo el operador asignado puede resolver el ticket");
+        }
+        if (!ticket.getEstadoActual().getCodigo().permiteTransicionA(TicketEstadoCodigo.RESUELTO)) {
+            throw new InvalidTicketOperationException(
+                    "El ticket no se puede marcar como resuelto desde su estado actual (" + ticket.getEstadoActual().getNombre() + ")");
+        }
+        requireTexto(descripcion, "La descripción de la resolución es obligatoria");
+
+        ticket.setResolucion(descripcion);
+        aplicarEstado(ticket, TicketEstadoCodigo.RESUELTO, null, operador, "Ticket resuelto", descripcion);
+        ticket = ticketRepository.save(ticket);
+        notificacionService.notificarUsuario(ticket, ticket.getUsuario(),
+                "Tu ticket " + numero(ticket) + " fue resuelto: " + descripcion);
+        return ticket;
+    }
+
+    // ---- CU15 - Agregar comentario ----
+    public List<Comentario> listarComentarios(Long ticketId) {
+        return comentarioRepository.findByTicketIdOrderByFechaCreacionAsc(ticketId);
+    }
+
+    /** Precondiciones 2 y 3: titular u operador asignado, con el ticket fuera de CERRADO. */
+    public boolean puedeComentar(Ticket ticket, UsuarioTicket usuario, Operador operador) {
+        if (ticket.getEstadoActual().getCodigo() == TicketEstadoCodigo.CERRADO) {
+            return false;
+        }
+        if (usuario != null) {
+            return ticket.getUsuario().getId().equals(usuario.getId());
+        }
+        return operador != null && esOperadorAsignado(ticket, operador);
+    }
+
+    /** Exactamente uno de los dos autores: el titular (usuario) o el operador asignado. */
+    public Ticket agregarComentario(Long ticketId, UsuarioTicket autorUsuario, Operador autorOperador, String texto) {
+        requireTexto(texto, "El comentario no puede estar vacío");
+        Ticket ticket = autorUsuario != null
+                ? buscarTicketPropio(ticketId, autorUsuario.getId())
+                : buscarTicketExistente(ticketId);
+        if (autorUsuario == null && !esOperadorAsignado(ticket, autorOperador)) {
+            throw new InvalidTicketOperationException("Solo el operador asignado puede comentar el ticket");
+        }
+        if (!puedeComentar(ticket, autorUsuario, autorOperador)) {
+            throw new InvalidTicketOperationException("No se puede comentar un ticket cerrado");
+        }
+
+        Comentario comentario = new Comentario();
+        comentario.setTicket(ticket);
+        comentario.setContenido(texto);
+        comentario.setFechaCreacion(LocalDateTime.now());
+        comentario.setUsuarioAutor(autorUsuario);
+        comentario.setOperadorAutor(autorOperador);
+        comentarioRepository.save(comentario);
+        ticket.setFechaUltimaActualizacion(LocalDateTime.now());
+        ticket = ticketRepository.save(ticket);
+
+        // Paso 8: aviso a la contraparte. FA2: sin operador asignado no hay a quién avisar.
+        if (autorUsuario != null && ticket.getOperador() != null) {
+            notificacionService.notificarOperador(ticket, ticket.getOperador(),
+                    "Nuevo comentario del usuario en el ticket " + numero(ticket) + ": " + texto);
+        } else if (autorOperador != null) {
+            notificacionService.notificarUsuario(ticket, ticket.getUsuario(),
+                    "Nuevo comentario del operador en tu ticket " + numero(ticket) + ": " + texto);
+        }
+        return ticket;
+    }
+
+    // ---- CU17 - Cerrar ticket ----
+    public Ticket cerrarTicket(Long ticketId, Operador operador, String motivoCierre, boolean gestionaTodos) {
+        Ticket ticket = buscarTicketExistente(ticketId);
+
+        // Precondición 3: operador asignado o con permisos de administración.
+        if (!gestionaTodos && !esOperadorAsignado(ticket, operador)) {
             throw new InvalidTicketOperationException("Solo el operador asignado puede cerrar el ticket");
         }
         if (ticket.getEstadoActual().getCodigo() != TicketEstadoCodigo.RESUELTO) {
             throw new InvalidTicketOperationException("El ticket debe estar RESUELTO para poder cerrarlo");
         }
-        if (motivoCierre == null || motivoCierre.isBlank()) {
-            throw new InvalidTicketOperationException("La descripción de la solución es obligatoria");
-        }
+        requireTexto(motivoCierre, "La descripción de la solución es obligatoria");
 
         ticket.setMotivoCierre(motivoCierre);
         ticket.setFechaCierre(LocalDateTime.now());
         aplicarEstado(ticket, TicketEstadoCodigo.CERRADO, null, operador, "Cierre del ticket", motivoCierre);
         ticket = ticketRepository.save(ticket);
-        notificacionService.notificarUsuario(ticket.getUsuario(),
-                "Tu ticket #" + ticket.getId() + " fue cerrado. Solución: " + motivoCierre);
+        notificacionService.notificarUsuario(ticket, ticket.getUsuario(),
+                "Tu ticket " + numero(ticket) + " fue cerrado. Solución: " + motivoCierre);
         return ticket;
     }
 
@@ -326,11 +483,11 @@ public class TicketService {
         }
 
         ticket.setValidado(true);
-        ticket.setFechaUltimaActualizacion(LocalDateTime.now());
+        registrarEvento(ticket, usuario, null, "El usuario confirmó la resolución");
         ticket = ticketRepository.save(ticket);
         if (ticket.getOperador() != null) {
-            notificacionService.notificarOperador(ticket.getOperador(),
-                    "El usuario validó la resolución del ticket #" + ticket.getId());
+            notificacionService.notificarOperador(ticket, ticket.getOperador(),
+                    "El usuario validó la resolución del ticket " + numero(ticket));
         }
         return ticket;
     }
@@ -341,9 +498,9 @@ public class TicketService {
         return reabrir(ticket, usuario, null, motivo);
     }
 
-    public Ticket reabrirTicketPorOperador(Long ticketId, Operador operador, String motivo) {
+    public Ticket reabrirTicketPorOperador(Long ticketId, Operador operador, String motivo, boolean gestionaTodos) {
         Ticket ticket = buscarTicketExistente(ticketId);
-        if (ticket.getOperador() == null || !ticket.getOperador().getId().equals(operador.getId())) {
+        if (!gestionaTodos && !esOperadorAsignado(ticket, operador)) {
             throw new TicketNotFoundException(ticketId);
         }
         return reabrir(ticket, null, operador, motivo);
@@ -356,9 +513,7 @@ public class TicketService {
         if (!ticket.getEstadoActual().isPermiteReapertura()) {
             throw new InvalidTicketOperationException("El estado actual no permite reapertura");
         }
-        if (motivo == null || motivo.isBlank()) {
-            throw new InvalidTicketOperationException("El motivo de la reapertura es obligatorio");
-        }
+        requireTexto(motivo, "El motivo de la reapertura es obligatorio");
 
         ticket.setMotivoReapertura(motivo);
         ticket.setValidado(false);
@@ -366,12 +521,12 @@ public class TicketService {
         ticket = ticketRepository.save(ticket);
 
         if (ticket.getOperador() != null) {
-            notificacionService.notificarOperador(ticket.getOperador(),
-                    "El ticket #" + ticket.getId() + " fue reabierto: " + motivo);
+            notificacionService.notificarOperador(ticket, ticket.getOperador(),
+                    "El ticket " + numero(ticket) + " fue reabierto: " + motivo);
         }
         if (actorOperador != null) {
-            notificacionService.notificarUsuario(ticket.getUsuario(),
-                    "El ticket #" + ticket.getId() + " fue reabierto por el operador: " + motivo);
+            notificacionService.notificarUsuario(ticket, ticket.getUsuario(),
+                    "El ticket " + numero(ticket) + " fue reabierto por el operador: " + motivo);
         }
         return ticket;
     }
@@ -380,14 +535,36 @@ public class TicketService {
 
     private HistorialEstado aplicarEstado(Ticket ticket, TicketEstadoCodigo codigo, UsuarioTicket actorUsuario,
                                            Operador actorOperador, String observacion, String motivoCambio) {
+        TicketEstado actual = ticket.getEstadoActual();
+        if (actual != null && actual.getCodigo() != codigo && !actual.getCodigo().permiteTransicionA(codigo)) {
+            throw new InvalidTicketOperationException(
+                    "Transición no permitida de " + actual.getCodigo() + " a " + codigo);
+        }
         TicketEstado estado = ticketEstadoRepository.findByCodigo(codigo)
                 .orElseThrow(() -> new IllegalStateException("Estado no seedeado: " + codigo));
         ticket.setEstadoActual(estado);
+        return agregarHistorial(ticket, TipoRegistroHistorial.CAMBIO_ESTADO, actorUsuario, actorOperador,
+                observacion, motivoCambio);
+    }
+
+    /**
+     * Deja constancia en el historial de una acción que no cambia el estado (clasificación,
+     * priorización, adjunto, validación de resolución): la entrada repite el estado vigente.
+     */
+    private HistorialEstado registrarEvento(Ticket ticket, UsuarioTicket actorUsuario, Operador actorOperador,
+                                             String observacion) {
+        return agregarHistorial(ticket, TipoRegistroHistorial.ACTUALIZACION, actorUsuario, actorOperador,
+                observacion, null);
+    }
+
+    private HistorialEstado agregarHistorial(Ticket ticket, TipoRegistroHistorial tipo, UsuarioTicket actorUsuario,
+                                              Operador actorOperador, String observacion, String motivoCambio) {
         ticket.setFechaUltimaActualizacion(LocalDateTime.now());
 
         HistorialEstado historial = new HistorialEstado();
+        historial.setTipo(tipo);
         historial.setTicket(ticket);
-        historial.setTicketEstado(estado);
+        historial.setTicketEstado(ticket.getEstadoActual());
         historial.setFechaCambio(LocalDateTime.now());
         historial.setObservacion(observacion);
         historial.setMotivoCambio(motivoCambio);
@@ -408,6 +585,50 @@ public class TicketService {
         historial.setTipoAccion(tipoAccion);
         historial.setFechaAsignacion(LocalDateTime.now());
         historialAsignacionRepository.save(historial);
+    }
+
+    /** Valida formato, tamaño y cantidad (CU02 FA1, FA2, E2) y guarda el archivo; operadorAutor solo en CU08. */
+    private Adjunto guardarAdjunto(Ticket ticket, String nombreArchivo, String tipoArchivo, long tamano,
+                                   byte[] contenido, String descripcion, Operador operadorAutor) {
+        if (!tieneExtensionPermitida(nombreArchivo)) {
+            throw new InvalidTicketOperationException(
+                    "Formato de archivo no permitido. Formatos válidos: JPG, PNG, PDF, DOCX, XLSX");
+        }
+        if (tamano > limitesAdjuntos.getTamanioMaximoBytes()) {
+            throw new InvalidTicketOperationException(
+                    "El archivo supera el tamaño máximo permitido (" + limitesAdjuntos.getTamanioMaximoMb() + " MB)");
+        }
+        if (adjuntoRepository.countByTicketId(ticket.getId()) >= limitesAdjuntos.getMaximoPorTicket()) {
+            throw new InvalidTicketOperationException(
+                    "El ticket ya tiene el máximo de " + limitesAdjuntos.getMaximoPorTicket() + " adjuntos permitidos");
+        }
+
+        Adjunto adjunto = new Adjunto();
+        adjunto.setTicket(ticket);
+        adjunto.setNombreArchivo(nombreArchivo);
+        adjunto.setTipoArchivo(tipoArchivo);
+        adjunto.setTamano(tamano);
+        adjunto.setDescripcion(descripcion);
+        adjunto.setFechaCarga(LocalDateTime.now());
+        adjunto.setContenido(contenido);
+        adjunto.setOperadorAutor(operadorAutor);
+        return adjuntoRepository.save(adjunto);
+    }
+
+    private void requireTexto(String texto, String mensajeSiVacio) {
+        if (texto == null || texto.isBlank()) {
+            throw new InvalidTicketOperationException(mensajeSiVacio);
+        }
+        if (texto.length() > LARGO_MAXIMO_TEXTO) {
+            throw new InvalidTicketOperationException("El texto no puede superar los " + LARGO_MAXIMO_TEXTO + " caracteres");
+        }
+    }
+
+    private void requireAdjuntosEditables(Ticket ticket) {
+        if (!ESTADOS_EDITABLES_ADJUNTOS.contains(ticket.getEstadoActual().getCodigo())) {
+            throw new InvalidTicketOperationException(
+                    "El ticket no admite cambios en sus adjuntos en su estado actual (" + ticket.getEstadoActual().getNombre() + ")");
+        }
     }
 
     private void requireEstadoClasificable(Ticket ticket) {
@@ -431,9 +652,35 @@ public class TicketService {
         return ticket;
     }
 
-    private Categoria buscarCategoria(Long id) {
-        return categoriaRepository.findById(id)
+    private Categoria buscarCategoriaActiva(Long id) {
+        Categoria categoria = categoriaRepository.findById(id)
                 .orElseThrow(() -> new InvalidTicketOperationException("Categoría inexistente: " + id));
+        if (!categoria.isActiva()) {
+            throw new InvalidTicketOperationException("La categoría seleccionada no está activa");
+        }
+        return categoria;
+    }
+
+    /** Operadores activos del área de la categoría; si el área no tiene ninguno, todos los activos. */
+    private List<Operador> operadoresDelArea(Categoria categoria) {
+        List<Operador> activos = operadorRepository.findByActivoTrue();
+        String area = categoria.getArea();
+        if (area == null || area.isBlank()) {
+            return activos;
+        }
+        List<Operador> delArea = activos.stream()
+                .filter(o -> o.getArea() != null && o.getArea().trim().equalsIgnoreCase(area.trim()))
+                .toList();
+        return delArea.isEmpty() ? activos : delArea;
+    }
+
+    /** Número de ticket tal como lo muestra la interfaz (TK-000034). */
+    private static String numero(Ticket ticket) {
+        return String.format("TK-%06d", ticket.getId());
+    }
+
+    private boolean esOperadorAsignado(Ticket ticket, Operador operador) {
+        return ticket.getOperador() != null && ticket.getOperador().getId().equals(operador.getId());
     }
 
     private Prioridad buscarPrioridad(Long id) {
@@ -459,6 +706,6 @@ public class TicketService {
             return false;
         }
         String extension = nombreArchivo.substring(puntoIndex + 1).toLowerCase(Locale.ROOT);
-        return EXTENSIONES_PERMITIDAS.contains(extension);
+        return LimitesAdjuntos.EXTENSIONES_PERMITIDAS.contains(extension);
     }
 }

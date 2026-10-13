@@ -17,6 +17,8 @@ public final class Permisos {
     public static final String TICKET_ASIGNAR = "TICKET_ASIGNAR";
     public static final String TICKET_RESOLVER = "TICKET_RESOLVER";
     public static final String TICKET_REABRIR_OPERATIVO = "TICKET_REABRIR_OPERATIVO";
+    /** Operar sobre tickets asignados a otro operador ("o tener permisos de administración", CU17/CU07). */
+    public static final String TICKET_GESTIONAR_TODOS = "TICKET_GESTIONAR_TODOS";
     public static final String SEGURIDAD_ADMINISTRAR = "SEGURIDAD_ADMINISTRAR";
     public static final String USUARIOS_ADMINISTRAR = "USUARIOS_ADMINISTRAR";
 
