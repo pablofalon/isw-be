@@ -21,6 +21,8 @@ public final class Permisos {
     public static final String TICKET_GESTIONAR_TODOS = "TICKET_GESTIONAR_TODOS";
     public static final String SEGURIDAD_ADMINISTRAR = "SEGURIDAD_ADMINISTRAR";
     public static final String USUARIOS_ADMINISTRAR = "USUARIOS_ADMINISTRAR";
+    /** Generar reportes, consultar indicadores y exportar (CU20, CU21, CU22). */
+    public static final String REPORTES_CONSULTAR = "REPORTES_CONSULTAR";
 
     private Permisos() {
     }

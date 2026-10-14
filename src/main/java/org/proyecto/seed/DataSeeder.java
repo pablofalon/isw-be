@@ -97,7 +97,9 @@ public class DataSeeder implements CommandLineRunner {
      *                      TICKET_VALIDAR_RESOLUCION, TICKET_REABRIR_PROPIO}
      *   GESTION_TICKETS = {TICKET_VER_TODOS, TICKET_CLASIFICAR, TICKET_ASIGNAR, TICKET_RESOLVER}
      *   OPERADOR        = {GESTION_TICKETS, TICKET_REABRIR_OPERATIVO}
-     *   ADMINISTRADOR   = {GESTION_TICKETS, TICKET_GESTIONAR_TODOS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR}
+     *   ADMINISTRADOR   = {GESTION_TICKETS, TICKET_GESTIONAR_TODOS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR,
+     *                      REPORTES_CONSULTAR}
+     *   SUPERVISOR      = {TICKET_VER_TODOS, REPORTES_CONSULTAR}  (se asigna a una cuenta desde el ABM de seguridad)
      */
     private void seedPermisos() {
 
@@ -114,13 +116,25 @@ public class DataSeeder implements CommandLineRunner {
         Permiso gestionarTodos = permiso(Permisos.TICKET_GESTIONAR_TODOS, "Cerrar o actualizar tickets asignados a otro operador");
         Permiso administrarSeguridad = permiso(Permisos.SEGURIDAD_ADMINISTRAR, "Administrar grupos, permisos y su asignación");
         Permiso administrarUsuarios = permiso(Permisos.USUARIOS_ADMINISTRAR, "Alta, modificación y baja de usuarios");
+        Permiso reportes = permiso(Permisos.REPORTES_CONSULTAR, "Generar reportes, consultar indicadores y exportar");
 
         grupo("USUARIO_FINAL", "Usuario que registra y sigue sus reclamos",
                 crear, verPropios, reenviar, validarResolucion, reabrirPropio);
         GrupoPermisos gestion = grupo("GESTION_TICKETS", "Tratamiento operativo de tickets",
                 verTodos, clasificar, asignar, resolver);
         grupo("OPERADOR", "Operador de soporte", gestion, reabrirOperativo);
-        grupo("ADMINISTRADOR", "Administrador del sistema", gestion, gestionarTodos, administrarSeguridad, administrarUsuarios);
+        GrupoPermisos administrador = grupo("ADMINISTRADOR", "Administrador del sistema",
+                gestion, gestionarTodos, administrarSeguridad, administrarUsuarios, reportes);
+        grupo("SUPERVISOR", "Supervisión: consulta de tickets, reportes e indicadores", verTodos, reportes);
+        // La base persiste entre reinicios: si el grupo ya existía, se le suma el permiso nuevo.
+        agregarSiFalta(administrador, reportes);
+    }
+
+    private void agregarSiFalta(GrupoPermisos grupo, ComponentePermiso hijo) {
+        if (grupo.getHijos().stream().noneMatch(h -> h.getCodigo().equals(hijo.getCodigo()))) {
+            grupo.agregar(hijo);
+            componentePermisoRepository.save(grupo);
+        }
     }
 
     /** Devuelve el permiso existente o lo crea si falta (la base persiste entre reinicios). */

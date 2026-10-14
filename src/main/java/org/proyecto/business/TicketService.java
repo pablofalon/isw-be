@@ -4,6 +4,7 @@ import org.proyecto.data.AdjuntoRepository;
 import org.proyecto.data.CategoriaRepository;
 import org.proyecto.data.ComentarioRepository;
 import org.proyecto.data.HistorialAsignacionRepository;
+import org.proyecto.data.HistorialEstadoRepository;
 import org.proyecto.data.OperadorRepository;
 import org.proyecto.data.PrioridadRepository;
 import org.proyecto.data.TicketEstadoRepository;
@@ -23,7 +24,10 @@ import org.proyecto.entities.TipoRegistroHistorial;
 import org.proyecto.entities.UsuarioTicket;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,13 +63,15 @@ public class TicketService {
     private final NotificacionService notificacionService;
     private final LimitesAdjuntos limitesAdjuntos;
     private final ComentarioRepository comentarioRepository;
+    private final HistorialEstadoRepository historialEstadoRepository;
 
     public TicketService(TicketRepository ticketRepository, AdjuntoRepository adjuntoRepository,
                           HistorialAsignacionRepository historialAsignacionRepository,
                           TicketEstadoRepository ticketEstadoRepository, CategoriaRepository categoriaRepository,
                           PrioridadRepository prioridadRepository, OperadorRepository operadorRepository,
                           NotificacionService notificacionService, LimitesAdjuntos limitesAdjuntos,
-                          ComentarioRepository comentarioRepository) {
+                          ComentarioRepository comentarioRepository,
+                          HistorialEstadoRepository historialEstadoRepository) {
         this.ticketRepository = ticketRepository;
         this.adjuntoRepository = adjuntoRepository;
         this.historialAsignacionRepository = historialAsignacionRepository;
@@ -76,6 +82,7 @@ public class TicketService {
         this.notificacionService = notificacionService;
         this.limitesAdjuntos = limitesAdjuntos;
         this.comentarioRepository = comentarioRepository;
+        this.historialEstadoRepository = historialEstadoRepository;
     }
 
     // ---- CU01 - Registrar ticket ----
@@ -301,6 +308,94 @@ public class TicketService {
     public List<Ticket> listarSinAsignar() {
         return ticketRepository.findByEstadoActual_CodigoAndOperadorIsNullOrderByFechaCreacionAsc(
                 TicketEstadoCodigo.VALIDADO);
+    }
+
+    // ---- CU10 - Consultar tickets operativos ----
+
+    /**
+     * Tickets operativos (estado no final) de la vista elegida, ordenados por prioridad (los sin
+     * prioridad al final) y antigüedad. Un estado final en el filtro los incorpora (FA2). Solo lectura:
+     * no escribe en el historial.
+     */
+    public List<Ticket> listarOperativos(Operador operador, VistaTickets vista, FiltroTickets filtro) {
+        validarPeriodo(filtro.desde(), filtro.hasta());
+        Long numero = numeroDeTicket(filtro.numero());
+        if (filtro.numero() != null && !filtro.numero().isBlank() && numero == null) {
+            return List.of();
+        }
+        List<Ticket> tickets = ticketRepository.buscarOperativos(
+                vista == VistaTickets.MIS_TICKETS ? operador.getId() : null, filtro.estado(), filtro.idCategoria(),
+                filtro.idPrioridad(), filtro.idOperador(), numero, inicioDelDia(filtro.desde()), finDelDia(filtro.hasta()));
+        return tickets.stream()
+                .sorted(Comparator.comparingInt(TicketService::pesoPrioridad).reversed()
+                        .thenComparing(Ticket::getFechaCreacion))
+                .toList();
+    }
+
+    // ---- CU11 - Monitorear tiempos de respuesta ----
+
+    /** Umbral desde el cual un ticket sin atender se considera próximo a vencer: 80 % del tiempo objetivo. */
+    static final double UMBRAL_PROXIMO_A_VENCER = 0.8;
+
+    public MonitoreoTiempos monitorearTiempos(Operador operador, VistaTickets alcance, FiltroTiempos filtro) {
+        return monitorearTiempos(operador, alcance, filtro, LocalDateTime.now());
+    }
+
+    /**
+     * Tiempo de respuesta = de la creación a la primera atención (primer paso a EN_ANALISIS) o, si
+     * todavía no se atendió, hasta ahora. Se clasifica contra el objetivo de la prioridad y se ordena
+     * de mayor a menor urgencia. Los tiempos no se persisten.
+     */
+    MonitoreoTiempos monitorearTiempos(Operador operador, VistaTickets alcance, FiltroTiempos filtro,
+                                       LocalDateTime ahora) {
+        validarPeriodo(filtro.desde(), filtro.hasta());
+        List<Ticket> tickets = ticketRepository.buscarOperativos(
+                alcance == VistaTickets.MIS_TICKETS ? operador.getId() : null, null, filtro.idCategoria(),
+                filtro.idPrioridad(), null, null, inicioDelDia(filtro.desde()), finDelDia(filtro.hasta()));
+
+        List<MonitoreoTiempos.Item> items = tickets.stream()
+                .map(ticket -> medirTiempoRespuesta(ticket, ahora))
+                .filter(item -> filtro.cumplimiento() == null || item.cumplimiento() == filtro.cumplimiento())
+                .sorted(Comparator.comparing(MonitoreoTiempos.Item::cumplimiento)
+                        .thenComparing(Comparator.comparing(
+                                (MonitoreoTiempos.Item item) -> item.porcentajeConsumido() == null ? 0.0 : item.porcentajeConsumido())
+                                .reversed()))
+                .toList();
+
+        double promedio = items.stream()
+                .filter(item -> item.cumplimiento() != CumplimientoTiempo.SIN_PRIORIDAD)
+                .mapToDouble(MonitoreoTiempos.Item::horasTranscurridas)
+                .average().orElse(0.0);
+        return new MonitoreoTiempos(new MonitoreoTiempos.Resumen(
+                contar(items, CumplimientoTiempo.EN_PLAZO), contar(items, CumplimientoTiempo.PROXIMO_A_VENCER),
+                contar(items, CumplimientoTiempo.VENCIDO), contar(items, CumplimientoTiempo.SIN_PRIORIDAD),
+                redondear(promedio)), items);
+    }
+
+    private MonitoreoTiempos.Item medirTiempoRespuesta(Ticket ticket, LocalDateTime ahora) {
+        LocalDateTime primeraAtencion = historialEstadoRepository.buscarFechaPrimeraAtencion(ticket.getId()).orElse(null);
+        double horas = redondear(horasEntre(ticket.getFechaCreacion(), primeraAtencion != null ? primeraAtencion : ahora));
+        boolean atendido = primeraAtencion != null;
+
+        Integer objetivo = ticket.getPrioridad() != null ? ticket.getPrioridad().getTiempoObjetivoRespuesta() : null;
+        if (objetivo == null || objetivo <= 0) {
+            return new MonitoreoTiempos.Item(ticket, CumplimientoTiempo.SIN_PRIORIDAD, horas, null, null, atendido);
+        }
+        double consumido = horas / objetivo;
+        CumplimientoTiempo cumplimiento = consumido > 1 ? CumplimientoTiempo.VENCIDO
+                : consumido >= UMBRAL_PROXIMO_A_VENCER ? CumplimientoTiempo.PROXIMO_A_VENCER
+                : CumplimientoTiempo.EN_PLAZO;
+        return new MonitoreoTiempos.Item(ticket, cumplimiento, horas, objetivo, redondear(consumido * 100), atendido);
+    }
+
+    // ---- CU12 - Consultar historial del ticket ----
+
+    /** Historial del ticket con el registro más reciente primero; el ticket inexistente es E1. No genera registros. */
+    public List<HistorialEstado> obtenerHistorial(Long ticketId, FiltroHistorial filtro) {
+        buscarTicketExistente(ticketId);
+        validarPeriodo(filtro.desde(), filtro.hasta());
+        return historialEstadoRepository.buscarPorTicket(ticketId, filtro.estado(),
+                inicioDelDia(filtro.desde()), finDelDia(filtro.hasta()));
     }
 
     // ---- CU07 - Actualizar estado del ticket ----
@@ -677,6 +772,49 @@ public class TicketService {
     /** Número de ticket tal como lo muestra la interfaz (TK-000034). */
     private static String numero(Ticket ticket) {
         return String.format("TK-%06d", ticket.getId());
+    }
+
+    private static int pesoPrioridad(Ticket ticket) {
+        return ticket.getPrioridad() == null ? -1 : ticket.getPrioridad().getNivel().ordinal();
+    }
+
+    /** Número de ticket a partir del texto que escribe el operador (TK-000034, 34); null si no tiene dígitos. */
+    private static Long numeroDeTicket(String texto) {
+        if (texto == null) {
+            return null;
+        }
+        String digitos = texto.replaceAll("\\D", "");
+        if (digitos.isEmpty() || digitos.length() > 18) {
+            return null;
+        }
+        return Long.parseLong(digitos);
+    }
+
+    private static void validarPeriodo(LocalDate desde, LocalDate hasta) {
+        if (desde != null && hasta != null && desde.isAfter(hasta)) {
+            throw new InvalidTicketOperationException("La fecha desde no puede ser posterior a la fecha hasta");
+        }
+    }
+
+    private static LocalDateTime inicioDelDia(LocalDate fecha) {
+        return fecha == null ? null : fecha.atStartOfDay();
+    }
+
+    /** Límite exclusivo: el día "hasta" entra completo. */
+    private static LocalDateTime finDelDia(LocalDate fecha) {
+        return fecha == null ? null : fecha.plusDays(1).atStartOfDay();
+    }
+
+    private static double horasEntre(LocalDateTime desde, LocalDateTime hasta) {
+        return Duration.between(desde, hasta).toMinutes() / 60.0;
+    }
+
+    private static double redondear(double valor) {
+        return Math.round(valor * 100.0) / 100.0;
+    }
+
+    private static long contar(List<MonitoreoTiempos.Item> items, CumplimientoTiempo cumplimiento) {
+        return items.stream().filter(item -> item.cumplimiento() == cumplimiento).count();
     }
 
     private boolean esOperadorAsignado(Ticket ticket, Operador operador) {
