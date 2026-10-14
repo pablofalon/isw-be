@@ -1,6 +1,5 @@
 package org.proyecto.presentation;
 
-import org.proyecto.business.AuthService;
 import org.proyecto.entities.ComponentePermiso;
 import org.proyecto.entities.CuentaAcceso;
 import org.proyecto.entities.Operador;
@@ -37,7 +36,7 @@ public class UsuarioResponse {
         response.usuarioLogin = cuenta.getUsuarioLogin();
         response.tipo = cuenta.getRol();
         response.activa = cuenta.isActiva();
-        response.bloqueadaPorIntentos = !cuenta.isActiva() && cuenta.getIntentosFallidos() >= AuthService.MAXIMO_INTENTOS_FALLIDOS;
+        response.bloqueadaPorIntentos = cuenta.estaBloqueada(LocalDateTime.now());
         response.debeCambiarPassword = cuenta.isDebeCambiarPassword();
         response.fechaUltimoAcceso = cuenta.getFechaUltimoAcceso();
         response.grupos = cuenta.getComponentes().stream().map(ComponentePermiso::getCodigo).toList();

@@ -149,12 +149,13 @@ public class UsuarioService {
         return cuenta;
     }
 
-    /** Reactiva una cuenta dada de baja o bloqueada por intentos fallidos. */
+    /** Reactiva una cuenta dada de baja; también levanta un bloqueo temporal por intentos fallidos. */
     @Transactional
     public CuentaAcceso activar(Long cuentaId) {
         CuentaAcceso cuenta = buscarCuenta(cuentaId);
         cuenta.setActiva(true);
         cuenta.setIntentosFallidos(0);
+        cuenta.setBloqueadaHasta(null);
         if (cuenta.getOperador() != null) {
             cuenta.getOperador().setActivo(true);
         }
@@ -172,6 +173,7 @@ public class UsuarioService {
         cuenta.setPasswordHash(cryptoManager.hash(passwordTemporal));
         cuenta.setDebeCambiarPassword(true);
         cuenta.setIntentosFallidos(0);
+        cuenta.setBloqueadaHasta(null);
         SessionManager.getInstance().invalidarSesionesDe(cuentaId);
         return cuenta;
     }

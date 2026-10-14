@@ -52,6 +52,9 @@ public class CuentaAcceso {
 
     private LocalDateTime fechaUltimoAcceso;
 
+    /** CU23 E1: hasta esta fecha la cuenta no puede iniciar sesión (null = sin bloqueo). */
+    private LocalDateTime bloqueadaHasta;
+
     @Column(nullable = false)
     private boolean activa = true;
 
@@ -131,6 +134,18 @@ public class CuentaAcceso {
 
     public void setFechaUltimoAcceso(LocalDateTime fechaUltimoAcceso) {
         this.fechaUltimoAcceso = fechaUltimoAcceso;
+    }
+
+    public LocalDateTime getBloqueadaHasta() {
+        return bloqueadaHasta;
+    }
+
+    public void setBloqueadaHasta(LocalDateTime bloqueadaHasta) {
+        this.bloqueadaHasta = bloqueadaHasta;
+    }
+
+    public boolean estaBloqueada(LocalDateTime ahora) {
+        return bloqueadaHasta != null && ahora.isBefore(bloqueadaHasta);
     }
 
     public boolean isActiva() {

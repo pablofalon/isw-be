@@ -2,6 +2,8 @@ package org.proyecto.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -23,9 +25,14 @@ public class HistorialEstado {
     @Column(nullable = false)
     private LocalDateTime fechaCambio;
 
+    @Column(length = 2000)
     private String observacion;
 
+    @Column(length = 2000)
     private String motivoCambio;
+
+    @Enumerated(EnumType.STRING)
+    private TipoRegistroHistorial tipo;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "ticket_id", nullable = false)
@@ -108,5 +115,13 @@ public class HistorialEstado {
 
     public void setActorOperador(Operador actorOperador) {
         this.actorOperador = actorOperador;
+    }
+
+    public TipoRegistroHistorial getTipo() {
+        return tipo;
+    }
+
+    public void setTipo(TipoRegistroHistorial tipo) {
+        this.tipo = tipo;
     }
 }

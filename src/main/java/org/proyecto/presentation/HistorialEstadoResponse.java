@@ -1,12 +1,14 @@
 package org.proyecto.presentation;
 
 import org.proyecto.entities.HistorialEstado;
+import org.proyecto.entities.TipoRegistroHistorial;
 
 import java.time.LocalDateTime;
 
 public class HistorialEstadoResponse {
 
     private String estado;
+    private TipoRegistroHistorial tipo;
     private String observacion;
     private String motivoCambio;
     private LocalDateTime fechaCambio;
@@ -19,6 +21,7 @@ public class HistorialEstadoResponse {
     public static HistorialEstadoResponse from(HistorialEstado historial) {
         HistorialEstadoResponse response = new HistorialEstadoResponse();
         response.estado = historial.getTicketEstado().getNombre();
+        response.tipo = historial.getTipo() != null ? historial.getTipo() : TipoRegistroHistorial.CAMBIO_ESTADO;
         response.observacion = historial.getObservacion();
         response.motivoCambio = historial.getMotivoCambio();
         response.fechaCambio = historial.getFechaCambio();
@@ -73,5 +76,13 @@ public class HistorialEstadoResponse {
 
     public void setActorOperador(OperadorResumen actorOperador) {
         this.actorOperador = actorOperador;
+    }
+
+    public TipoRegistroHistorial getTipo() {
+        return tipo;
+    }
+
+    public void setTipo(TipoRegistroHistorial tipo) {
+        this.tipo = tipo;
     }
 }

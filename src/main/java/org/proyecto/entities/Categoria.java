@@ -23,12 +23,20 @@ public class Categoria {
     @Column(nullable = false)
     private boolean activa = true;
 
+    /** Área de operadores que atiende la categoría (CU13 paso 4); se compara con Operador.area. */
+    private String area;
+
     public Categoria() {
     }
 
     public Categoria(String nombre, String descripcion) {
         this.nombre = nombre;
         this.descripcion = descripcion;
+    }
+
+    public Categoria(String nombre, String descripcion, String area) {
+        this(nombre, descripcion);
+        this.area = area;
     }
 
     public Long getId() {
@@ -61,5 +69,13 @@ public class Categoria {
 
     public void setActiva(boolean activa) {
         this.activa = activa;
+    }
+
+    public String getArea() {
+        return area;
+    }
+
+    public void setArea(String area) {
+        this.area = area;
     }
 }

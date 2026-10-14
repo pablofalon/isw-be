@@ -9,9 +9,12 @@ import org.proyecto.data.CuentaAccesoRepository;
 import org.proyecto.entities.CuentaAcceso;
 import org.proyecto.entities.Rol;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -30,7 +33,7 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(cuentaAccesoRepository, cryptoManager);
+        authService = new AuthService(cuentaAccesoRepository, cryptoManager, 5, 15);
         cuenta = new CuentaAcceso();
         cuenta.setUsuarioLogin("juan.perez");
         cuenta.setPasswordHash(cryptoManager.hash("usuario123"));
@@ -61,14 +64,34 @@ class AuthServiceTest {
     }
 
     @Test
-    void loginBloqueaLaCuentaTrasCincoIntentosFallidos() {
+    void loginBloqueaTemporalmenteLaCuentaTrasCincoIntentosFallidos() {
         when(cuentaAccesoRepository.findByUsuarioLogin("juan.perez")).thenReturn(Optional.of(cuenta));
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 4; i++) {
             authService.login("juan.perez", "incorrecta");
         }
+        assertThrows(CuentaNoDisponibleException.class, () -> authService.login("juan.perez", "incorrecta"));
 
-        assertFalse(cuenta.isActiva());
+        assertTrue(cuenta.isActiva());
+        assertTrue(cuenta.estaBloqueada(LocalDateTime.now()));
+        assertTrue(cuenta.getBloqueadaHasta().isAfter(LocalDateTime.now().plusMinutes(14)));
+    }
+
+    @Test
+    void loginConCuentaBloqueadaFallaAunqueLaContraseñaSeaCorrecta() {
+        cuenta.setBloqueadaHasta(LocalDateTime.now().plusMinutes(10));
+        when(cuentaAccesoRepository.findByUsuarioLogin("juan.perez")).thenReturn(Optional.of(cuenta));
+
+        assertThrows(CuentaNoDisponibleException.class, () -> authService.login("juan.perez", "usuario123"));
+    }
+
+    @Test
+    void loginConBloqueoVencidoIngresaYLimpiaElBloqueo() {
+        cuenta.setBloqueadaHasta(LocalDateTime.now().minusMinutes(1));
+        when(cuentaAccesoRepository.findByUsuarioLogin("juan.perez")).thenReturn(Optional.of(cuenta));
+
+        assertTrue(authService.login("juan.perez", "usuario123").isPresent());
+        assertNull(cuenta.getBloqueadaHasta());
     }
 
     @Test
@@ -81,12 +104,20 @@ class AuthServiceTest {
     }
 
     @Test
-    void loginConCuentaInactivaFalla() {
+    void loginConCuentaInactivaInformaQueEstaInactiva() {
         cuenta.setActiva(false);
         when(cuentaAccesoRepository.findByUsuarioLogin("juan.perez")).thenReturn(Optional.of(cuenta));
 
-        Optional<CuentaAcceso> resultado = authService.login("juan.perez", "usuario123");
+        CuentaNoDisponibleException error = assertThrows(CuentaNoDisponibleException.class,
+                () -> authService.login("juan.perez", "usuario123"));
+        assertTrue(error.getMessage().contains("inactiva"));
+    }
 
-        assertFalse(resultado.isPresent());
+    @Test
+    void loginConCuentaInactivaYContraseñaIncorrectaNoRevelaElEstado() {
+        cuenta.setActiva(false);
+        when(cuentaAccesoRepository.findByUsuarioLogin("juan.perez")).thenReturn(Optional.of(cuenta));
+
+        assertFalse(authService.login("juan.perez", "incorrecta").isPresent());
     }
 }
