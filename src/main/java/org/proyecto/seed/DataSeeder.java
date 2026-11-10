@@ -16,6 +16,7 @@ import org.proyecto.entities.TicketEstadoCodigo;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Carga los catálogos que el sistema necesita para funcionar: estados, categorías, prioridades y el
@@ -40,7 +41,9 @@ public class DataSeeder implements CommandLineRunner {
         this.componentePermisoRepository = componentePermisoRepository;
     }
 
+    /** Transaccional: sobre una base ya poblada se recorren las colecciones lazy de los grupos (agregarSiFalta). */
     @Override
+    @Transactional
     public void run(String... args) {
         seedEstados();
         seedCategorias();
