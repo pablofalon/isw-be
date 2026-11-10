@@ -10,6 +10,7 @@ import org.proyecto.data.AdjuntoRepository;
 import org.proyecto.data.CategoriaRepository;
 import org.proyecto.data.ComentarioRepository;
 import org.proyecto.data.HistorialAsignacionRepository;
+import org.proyecto.data.HistorialEstadoRepository;
 import org.proyecto.data.OperadorRepository;
 import org.proyecto.data.PrioridadRepository;
 import org.proyecto.data.TicketEstadoRepository;
@@ -27,6 +28,8 @@ import org.proyecto.entities.TicketEstadoCodigo;
 import org.proyecto.entities.TipoRegistroHistorial;
 import org.proyecto.entities.UsuarioTicket;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -56,6 +61,7 @@ class TicketServiceTest {
     @Mock private OperadorRepository operadorRepository;
     @Mock private NotificacionService notificacionService;
     @Mock private ComentarioRepository comentarioRepository;
+    @Mock private HistorialEstadoRepository historialEstadoRepository;
 
     private TicketService ticketService;
     private UsuarioTicket usuario;
@@ -68,7 +74,7 @@ class TicketServiceTest {
     void setUp() {
         ticketService = new TicketService(ticketRepository, adjuntoRepository, historialAsignacionRepository,
                 ticketEstadoRepository, categoriaRepository, prioridadRepository, operadorRepository, notificacionService,
-                new LimitesAdjuntos(5, 2), comentarioRepository);
+                new LimitesAdjuntos(5, 2), comentarioRepository, historialEstadoRepository);
 
         usuario = new UsuarioTicket();
         usuario.setId(1L);
@@ -629,5 +635,149 @@ class TicketServiceTest {
         otroUsuario.setId(2L);
         assertThrows(TicketNotFoundException.class,
                 () -> ticketService.agregarComentario(1L, otroUsuario, null, "Comentario"));
+    }
+    // ---- CU10 / CU11 / CU12 ----
+
+    private Ticket ticketOperativo(long id, NivelPrioridad nivel, Integer horasObjetivo, LocalDateTime creado) {
+        Ticket ticket = new Ticket();
+        ticket.setId(id);
+        ticket.setUsuario(usuario);
+        ticket.setOperador(operador);
+        ticket.setFechaCreacion(creado);
+        ticket.setEstadoActual(estadoFalso(TicketEstadoCodigo.EN_ANALISIS));
+        if (nivel != null) {
+            ticket.setPrioridad(new Prioridad(nivel, null, horasObjetivo));
+        }
+        return ticket;
+    }
+
+    @Test
+    void listarOperativosOrdenaPorPrioridadYAntiguedadConLosSinPrioridadAlFinal() {
+        LocalDateTime base = LocalDateTime.of(2026, 10, 1, 9, 0);
+        Ticket altaVieja = ticketOperativo(1L, NivelPrioridad.ALTA, 24, base);
+        Ticket altaNueva = ticketOperativo(2L, NivelPrioridad.ALTA, 24, base.plusDays(1));
+        Ticket critica = ticketOperativo(3L, NivelPrioridad.CRITICA, 4, base.plusDays(2));
+        Ticket sinPrioridad = ticketOperativo(4L, null, null, base.minusDays(5));
+        when(ticketRepository.buscarOperativos(eq(10L), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), isNull()))
+                .thenReturn(List.of(altaNueva, sinPrioridad, altaVieja, critica));
+
+        List<Ticket> resultado = ticketService.listarOperativos(operador, VistaTickets.MIS_TICKETS, FiltroTickets.sinFiltros());
+
+        assertEquals(List.of(3L, 1L, 2L, 4L), resultado.stream().map(Ticket::getId).toList());
+    }
+
+    @Test
+    void listarOperativosEnVistaTodosNoAcotaPorOperadorYTraduceLosFiltros() {
+        when(ticketRepository.buscarOperativos(isNull(), eq(TicketEstadoCodigo.CERRADO), eq(100L), eq(200L), eq(20L),
+                eq(34L), eq(LocalDateTime.of(2026, 10, 1, 0, 0)), eq(LocalDateTime.of(2026, 10, 16, 0, 0))))
+                .thenReturn(List.of());
+
+        List<Ticket> resultado = ticketService.listarOperativos(operador, VistaTickets.TODOS, new FiltroTickets(
+                TicketEstadoCodigo.CERRADO, 100L, 200L, 20L, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 15), "TK-000034"));
+
+        assertTrue(resultado.isEmpty());
+        verify(ticketRepository).buscarOperativos(isNull(), eq(TicketEstadoCodigo.CERRADO), eq(100L), eq(200L), eq(20L),
+                eq(34L), any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    void listarOperativosConNumeroSinDigitosOPeriodoInvalidoNoConsultaOFalla() {
+        assertTrue(ticketService.listarOperativos(operador, VistaTickets.TODOS,
+                new FiltroTickets(null, null, null, null, null, null, "abc")).isEmpty());
+        verify(ticketRepository, never()).buscarOperativos(any(), any(), any(), any(), any(), any(), any(), any());
+
+        assertThrows(InvalidTicketOperationException.class, () -> ticketService.listarOperativos(operador,
+                VistaTickets.TODOS, new FiltroTickets(null, null, null, null,
+                        LocalDate.of(2026, 10, 15), LocalDate.of(2026, 10, 1), null)));
+    }
+
+    @Test
+    void monitorearTiemposClasificaContraElObjetivoDeLaPrioridadYOrdenaPorUrgencia() {
+        LocalDateTime ahora = LocalDateTime.of(2026, 10, 10, 12, 0);
+        Ticket enPlazo = ticketOperativo(1L, NivelPrioridad.MEDIA, 48, ahora.minusHours(10));
+        Ticket proximo = ticketOperativo(2L, NivelPrioridad.ALTA, 24, ahora.minusHours(20));
+        Ticket vencido = ticketOperativo(3L, NivelPrioridad.CRITICA, 4, ahora.minusHours(6));
+        Ticket sinPrioridad = ticketOperativo(4L, null, null, ahora.minusHours(1));
+        when(ticketRepository.buscarOperativos(eq(10L), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), isNull()))
+                .thenReturn(List.of(enPlazo, sinPrioridad, proximo, vencido));
+        when(historialEstadoRepository.buscarFechaPrimeraAtencion(anyLong())).thenReturn(Optional.empty());
+
+        MonitoreoTiempos monitoreo = ticketService.monitorearTiempos(operador, VistaTickets.MIS_TICKETS,
+                FiltroTiempos.sinFiltros(), ahora);
+
+        assertEquals(List.of(3L, 2L, 1L, 4L), monitoreo.items().stream().map(i -> i.ticket().getId()).toList());
+        assertEquals(List.of(CumplimientoTiempo.VENCIDO, CumplimientoTiempo.PROXIMO_A_VENCER,
+                CumplimientoTiempo.EN_PLAZO, CumplimientoTiempo.SIN_PRIORIDAD),
+                monitoreo.items().stream().map(MonitoreoTiempos.Item::cumplimiento).toList());
+        MonitoreoTiempos.Resumen resumen = monitoreo.resumen();
+        assertEquals(1, resumen.vencidos());
+        assertEquals(1, resumen.proximosAVencer());
+        assertEquals(1, resumen.enPlazo());
+        assertEquals(1, resumen.sinPrioridad());
+        // El promedio no incluye al ticket sin prioridad: (10 + 20 + 6) / 3
+        assertEquals(12.0, resumen.promedioHoras());
+        assertEquals(150.0, monitoreo.items().get(0).porcentajeConsumido());
+    }
+
+    @Test
+    void monitorearTiemposUsaLaPrimeraAtencionYNoElMomentoActualSiElTicketYaSeAtendio() {
+        LocalDateTime ahora = LocalDateTime.of(2026, 10, 10, 12, 0);
+        LocalDateTime creado = ahora.minusHours(30);
+        Ticket atendido = ticketOperativo(1L, NivelPrioridad.ALTA, 24, creado);
+        when(ticketRepository.buscarOperativos(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(atendido));
+        when(historialEstadoRepository.buscarFechaPrimeraAtencion(1L)).thenReturn(Optional.of(creado.plusHours(2)));
+
+        MonitoreoTiempos.Item item = ticketService.monitorearTiempos(operador, VistaTickets.TODOS,
+                FiltroTiempos.sinFiltros(), ahora).items().get(0);
+
+        assertEquals(2.0, item.horasTranscurridas());
+        assertTrue(item.atendido());
+        assertEquals(CumplimientoTiempo.EN_PLAZO, item.cumplimiento());
+    }
+
+    @Test
+    void monitorearTiemposFiltraPorCumplimientoYSinTicketsDevuelveResumenEnCero() {
+        LocalDateTime ahora = LocalDateTime.of(2026, 10, 10, 12, 0);
+        Ticket enPlazo = ticketOperativo(1L, NivelPrioridad.MEDIA, 48, ahora.minusHours(1));
+        Ticket vencido = ticketOperativo(2L, NivelPrioridad.CRITICA, 4, ahora.minusHours(9));
+        when(ticketRepository.buscarOperativos(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(enPlazo, vencido));
+        when(historialEstadoRepository.buscarFechaPrimeraAtencion(anyLong())).thenReturn(Optional.empty());
+
+        MonitoreoTiempos soloVencidos = ticketService.monitorearTiempos(operador, VistaTickets.TODOS,
+                new FiltroTiempos(null, null, CumplimientoTiempo.VENCIDO, null, null), ahora);
+        assertEquals(List.of(2L), soloVencidos.items().stream().map(i -> i.ticket().getId()).toList());
+
+        when(ticketRepository.buscarOperativos(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+        MonitoreoTiempos vacio = ticketService.monitorearTiempos(operador, VistaTickets.TODOS,
+                FiltroTiempos.sinFiltros(), ahora);
+        assertTrue(vacio.items().isEmpty());
+        assertEquals(0.0, vacio.resumen().promedioHoras());
+    }
+
+    @Test
+    void obtenerHistorialDelTicketInexistenteFalla() {
+        when(ticketRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(TicketNotFoundException.class,
+                () -> ticketService.obtenerHistorial(99L, FiltroHistorial.sinFiltros()));
+        verify(historialEstadoRepository, never()).buscarPorTicket(any(), any(), any(), any());
+    }
+
+    @Test
+    void obtenerHistorialTraduceLosFiltrosYNoEscribeNada() {
+        ticketEnEstado(TicketEstadoCodigo.EN_ANALISIS);
+        HistorialEstado registro = new HistorialEstado();
+        when(historialEstadoRepository.buscarPorTicket(eq(1L), eq(TicketEstadoCodigo.EN_ANALISIS),
+                eq(LocalDateTime.of(2026, 10, 1, 0, 0)), eq(LocalDateTime.of(2026, 10, 3, 0, 0))))
+                .thenReturn(List.of(registro));
+
+        List<HistorialEstado> historial = ticketService.obtenerHistorial(1L, new FiltroHistorial(
+                TicketEstadoCodigo.EN_ANALISIS, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 2)));
+
+        assertEquals(List.of(registro), historial);
+        verify(ticketRepository, never()).save(any(Ticket.class));
     }
 }

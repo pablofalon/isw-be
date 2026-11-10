@@ -1,6 +1,7 @@
 package org.proyecto.presentation;
 
 import org.proyecto.business.CuentaNoDisponibleException;
+import org.proyecto.business.ExportacionReporteException;
 import org.proyecto.business.ForbiddenOperationException;
 import org.proyecto.business.InvalidTicketOperationException;
 import org.proyecto.business.LimitesAdjuntos;
@@ -46,6 +47,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler({OperacionSeguridadInvalidaException.class, ComposicionInvalidaException.class})
     public ResponseEntity<ErrorResponse> handleSeguridadInvalida(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(ex.getMessage()));
+    }
+
+    /** CU22 E1: falló la generación del archivo; la interfaz ofrece reintentar o elegir otro formato. */
+    @ExceptionHandler(ExportacionReporteException.class)
+    public ResponseEntity<ErrorResponse> handleExportacionFallida(ExportacionReporteException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ErrorResponse(ex.getMessage()));
     }
 
     @ExceptionHandler(CuentaNoDisponibleException.class)

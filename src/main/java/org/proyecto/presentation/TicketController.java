@@ -1,17 +1,24 @@
 package org.proyecto.presentation;
 
 import org.proyecto.business.Autorizador;
+import org.proyecto.business.CumplimientoTiempo;
+import org.proyecto.business.FiltroHistorial;
+import org.proyecto.business.FiltroTickets;
+import org.proyecto.business.FiltroTiempos;
 import org.proyecto.business.ForbiddenOperationException;
 import org.proyecto.business.InvalidTicketOperationException;
 import org.proyecto.business.LimitesAdjuntos;
 import org.proyecto.business.Permisos;
 import org.proyecto.business.SesionActiva;
 import org.proyecto.business.TicketService;
+import org.proyecto.business.VistaTickets;
 import org.proyecto.config.AuthenticatedSession;
 import org.proyecto.entities.Adjunto;
 import org.proyecto.entities.Operador;
 import org.proyecto.entities.Ticket;
+import org.proyecto.entities.TicketEstadoCodigo;
 import org.proyecto.entities.UsuarioTicket;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +32,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -89,6 +97,48 @@ public class TicketController {
         return ticketService.consultarTicketsDeUsuario(usuario.getId()).stream()
                 .map(TicketResponse::from)
                 .toList();
+    }
+
+    // CU10
+    @GetMapping("/operativos")
+    public List<TicketResponse> operativos(@AuthenticatedSession SesionActiva sesion,
+                                           @RequestParam(defaultValue = "MIS_TICKETS") VistaTickets vista,
+                                           @RequestParam(required = false) TicketEstadoCodigo estado,
+                                           @RequestParam(required = false) Long idCategoria,
+                                           @RequestParam(required = false) Long idPrioridad,
+                                           @RequestParam(required = false) Long idOperador,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+                                           @RequestParam(required = false) String numero) {
+        Operador operador = operadorDe(sesion, Permisos.TICKET_VER_TODOS);
+        return ticketService.listarOperativos(operador, vista,
+                        new FiltroTickets(estado, idCategoria, idPrioridad, idOperador, desde, hasta, numero))
+                .stream().map(TicketResponse::from).toList();
+    }
+
+    // CU11
+    @GetMapping("/tiempos-respuesta")
+    public MonitoreoTiemposResponse tiemposDeRespuesta(@AuthenticatedSession SesionActiva sesion,
+                                                       @RequestParam(defaultValue = "MIS_TICKETS") VistaTickets alcance,
+                                                       @RequestParam(required = false) Long idCategoria,
+                                                       @RequestParam(required = false) Long idPrioridad,
+                                                       @RequestParam(required = false) CumplimientoTiempo cumplimiento,
+                                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+                                                       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        Operador operador = operadorDe(sesion, Permisos.TICKET_VER_TODOS);
+        return MonitoreoTiemposResponse.from(ticketService.monitorearTiempos(operador, alcance,
+                new FiltroTiempos(idCategoria, idPrioridad, cumplimiento, desde, hasta)));
+    }
+
+    // CU12
+    @GetMapping("/{id}/historial")
+    public List<HistorialEstadoResponse> historial(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
+                                                   @RequestParam(required = false) TicketEstadoCodigo estado,
+                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+                                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        autorizador.requirePermiso(sesion, Permisos.TICKET_VER_TODOS);
+        return ticketService.obtenerHistorial(id, new FiltroHistorial(estado, desde, hasta))
+                .stream().map(HistorialEstadoResponse::from).toList();
     }
 
     @GetMapping("/{id}")
