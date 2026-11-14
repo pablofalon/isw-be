@@ -32,8 +32,8 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
               and (:idPrioridad is null or t.prioridad.id = :idPrioridad)
               and (:idOperador is null or t.operador.id = :idOperador)
               and (:numero is null or t.id = :numero)
-              and (:desde is null or t.fechaCreacion >= :desde)
-              and (:hasta is null or t.fechaCreacion < :hasta)
+              and (cast(:desde as LocalDateTime) is null or t.fechaCreacion >= :desde)
+              and (cast(:hasta as LocalDateTime) is null or t.fechaCreacion < :hasta)
             """)
     List<Ticket> buscarOperativos(@Param("operadorId") Long operadorId, @Param("codigo") TicketEstadoCodigo codigo,
                                   @Param("idCategoria") Long idCategoria, @Param("idPrioridad") Long idPrioridad,

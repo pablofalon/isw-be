@@ -22,7 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Valida contra la base real las consultas con filtros opcionales de CU10, CU11, CU12 y CU20-CU22. */
-@DataJpaTest
+@DataJpaTest(properties = {
+        "spring.flyway.enabled=false",
+        "spring.jpa.hibernate.ddl-auto=create-drop"
+})
 class TicketRepositoryTest {
 
     private static final LocalDateTime BASE = LocalDateTime.of(2026, 10, 5, 10, 0);
