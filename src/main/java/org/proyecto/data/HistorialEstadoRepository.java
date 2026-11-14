@@ -19,8 +19,8 @@ public interface HistorialEstadoRepository extends JpaRepository<HistorialEstado
             select h from HistorialEstado h
             where h.ticket.id = :ticketId
               and (:codigo is null or h.ticketEstado.codigo = :codigo)
-              and (:desde is null or h.fechaCambio >= :desde)
-              and (:hasta is null or h.fechaCambio < :hasta)
+              and (cast(:desde as LocalDateTime) is null or h.fechaCambio >= :desde)
+              and (cast(:hasta as LocalDateTime) is null or h.fechaCambio < :hasta)
             order by h.fechaCambio desc, h.id desc
             """)
     List<HistorialEstado> buscarPorTicket(@Param("ticketId") Long ticketId,
