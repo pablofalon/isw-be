@@ -21,7 +21,7 @@ public class CsvExportadorReporte implements ExportadorReporte {
     public byte[] exportar(Reporte reporte, boolean incluirTotales) {
         StringBuilder csv = new StringBuilder(BOM);
         csv.append("Reporte de tickets").append(SEPARADOR_DE_LINEA);
-        csv.append("Período,").append(reporte.desde()).append(" a ").append(reporte.hasta()).append(SEPARADOR_DE_LINEA);
+        csv.append("Período,").append(FormatoFecha.dia(reporte.desde())).append(" a ").append(FormatoFecha.dia(reporte.hasta())).append(SEPARADOR_DE_LINEA);
         csv.append("Agrupado por,").append(reporte.criterio()).append(SEPARADOR_DE_LINEA);
         csv.append(SEPARADOR_DE_LINEA);
         csv.append(linea(reporte.criterio().name(), "Tickets", "Abiertos", "Cerrados", "Promedio de resolución (h)"));

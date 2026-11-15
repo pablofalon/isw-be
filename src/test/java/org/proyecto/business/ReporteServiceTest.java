@@ -17,6 +17,7 @@ import org.proyecto.entities.TicketEstadoCodigo;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -207,9 +208,10 @@ class ReporteServiceTest {
         ArchivoExportado pdf = reporteService.exportarReporte(hoy.minusDays(7), hoy, CriterioAgrupamiento.CATEGORIA,
                 FiltroReporte.sinFiltros(), FormatoExportacion.PDF, false);
 
-        assertEquals("reporte-tickets-" + hoy + ".csv", csv.nombre());
-        assertEquals("reporte-tickets-" + hoy + ".xlsx", excel.nombre());
-        assertEquals("reporte-tickets-" + hoy + ".pdf", pdf.nombre());
+        String hoyTexto = hoy.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+        assertEquals("reporte-tickets-" + hoyTexto + ".csv", csv.nombre());
+        assertEquals("reporte-tickets-" + hoyTexto + ".xlsx", excel.nombre());
+        assertEquals("reporte-tickets-" + hoyTexto + ".pdf", pdf.nombre());
         // Firmas de cada formato: xlsx es un zip (PK) y el PDF empieza con %PDF.
         assertEquals("PK", new String(excel.contenido(), 0, 2, StandardCharsets.ISO_8859_1));
         assertEquals("%PDF", new String(pdf.contenido(), 0, 4, StandardCharsets.ISO_8859_1));
@@ -244,5 +246,18 @@ class ReporteServiceTest {
         Reporte reporte = reporteService.generarReporte(hoy.minusDays(7), hoy, CriterioAgrupamiento.CATEGORIA,
                 FiltroReporte.sinFiltros());
         return new String(new CsvExportadorReporte().exportar(reporte, incluirTotales), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void elPeriodoDelCsvSeMuestraEnDiaMesAnioConBarras() {
+        hayTickets(ticketsDeEjemplo());
+        LocalDate desde = LocalDate.of(2026, 11, 1);
+
+        ArchivoExportado csv = reporteService.exportarReporte(desde, hoy, CriterioAgrupamiento.CATEGORIA,
+                FiltroReporte.sinFiltros(), FormatoExportacion.CSV, true);
+
+        String contenido = new String(csv.contenido(), StandardCharsets.UTF_8);
+        String hoyTexto = hoy.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        assertTrue(contenido.contains("Período,01/11/2026 a " + hoyTexto), contenido);
     }
 }

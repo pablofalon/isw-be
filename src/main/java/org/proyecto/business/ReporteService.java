@@ -94,7 +94,7 @@ public class ReporteService {
             throw new InvalidTicketOperationException("No hay datos para exportar en el período seleccionado");
         }
         byte[] contenido = exportador.exportar(reporte, incluirTotales);
-        String nombre = "reporte-tickets-" + LocalDate.now() + "." + formato.getExtension();
+        String nombre = "reporte-tickets-" + FormatoFecha.diaParaArchivo(LocalDate.now()) + "." + formato.getExtension();
         return new ArchivoExportado(nombre, contenido, formato.getTipoContenido());
     }
 

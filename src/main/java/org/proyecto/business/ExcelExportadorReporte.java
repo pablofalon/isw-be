@@ -32,7 +32,7 @@ public class ExcelExportadorReporte implements ExportadorReporte {
 
             int fila = 0;
             fila = escribirTexto(hoja, fila, "Reporte de tickets", estiloEncabezado);
-            fila = escribirTexto(hoja, fila, "Período: " + reporte.desde() + " a " + reporte.hasta(), null);
+            fila = escribirTexto(hoja, fila, "Período: " + FormatoFecha.dia(reporte.desde()) + " a " + FormatoFecha.dia(reporte.hasta()), null);
             fila = escribirTexto(hoja, fila, "Agrupado por: " + reporte.criterio(), null);
             fila++;
 
