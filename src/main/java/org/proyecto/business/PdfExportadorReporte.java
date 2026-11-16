@@ -36,7 +36,7 @@ public class PdfExportadorReporte implements ExportadorReporte {
             PdfWriter.getInstance(documento, salida);
             documento.open();
             documento.add(new Paragraph("Reporte de tickets", TITULO));
-            documento.add(new Paragraph("Período: " + reporte.desde() + " a " + reporte.hasta(), NORMAL));
+            documento.add(new Paragraph("Período: " + FormatoFecha.dia(reporte.desde()) + " a " + FormatoFecha.dia(reporte.hasta()), NORMAL));
             documento.add(new Paragraph("Agrupado por: " + reporte.criterio(), NORMAL));
             documento.add(new Paragraph(" "));
 
