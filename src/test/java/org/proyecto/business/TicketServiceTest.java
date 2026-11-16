@@ -62,6 +62,7 @@ class TicketServiceTest {
     @Mock private NotificacionService notificacionService;
     @Mock private ComentarioRepository comentarioRepository;
     @Mock private HistorialEstadoRepository historialEstadoRepository;
+    @Mock private ParametroService parametroService;
 
     private TicketService ticketService;
     private UsuarioTicket usuario;
@@ -74,7 +75,7 @@ class TicketServiceTest {
     void setUp() {
         ticketService = new TicketService(ticketRepository, adjuntoRepository, historialAsignacionRepository,
                 ticketEstadoRepository, categoriaRepository, prioridadRepository, operadorRepository, notificacionService,
-                new LimitesAdjuntos(5, 2), comentarioRepository, historialEstadoRepository);
+                new LimitesAdjuntos(5, 2), comentarioRepository, historialEstadoRepository, parametroService);
 
         usuario = new UsuarioTicket();
         usuario.setId(1L);
@@ -93,6 +94,7 @@ class TicketServiceTest {
         prioridad = new Prioridad(NivelPrioridad.ALTA, "desc", 24);
         prioridad.setId(200L);
 
+        lenient().when(parametroService.getUmbralAlerta()).thenReturn(0.8);
         lenient().when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(categoriaRepository.findById(100L)).thenReturn(Optional.of(categoria));
         lenient().when(prioridadRepository.findById(200L)).thenReturn(Optional.of(prioridad));

@@ -2,7 +2,6 @@ package org.proyecto.business;
 
 import org.proyecto.data.CuentaAccesoRepository;
 import org.proyecto.entities.CuentaAcceso;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -13,7 +12,7 @@ import java.util.Optional;
  * Implementa CU23 - Iniciar sesión. Ante credenciales inválidas no distingue entre "usuario
  * inexistente" y "contraseña incorrecta", para no filtrar existencia de cuentas. Solo con la
  * contraseña correcta informa que la cuenta está inactiva (FA2). Al superar el máximo de intentos
- * fallidos la cuenta queda bloqueada por un tiempo configurable (E1) y no se desactiva.
+ * fallidos la cuenta queda bloqueada por un tiempo configurable (E1); ambos valores se administran en CU25 y no se desactiva.
  */
 @Service
 public class AuthService {
@@ -22,16 +21,13 @@ public class AuthService {
 
     private final CuentaAccesoRepository cuentaAccesoRepository;
     private final CryptoManager cryptoManager;
-    private final int maximoIntentosFallidos;
-    private final long minutosBloqueo;
+    private final ParametroService parametroService;
 
     public AuthService(CuentaAccesoRepository cuentaAccesoRepository, CryptoManager cryptoManager,
-                       @Value("${app.login.maximo-intentos:5}") int maximoIntentosFallidos,
-                       @Value("${app.login.minutos-bloqueo:15}") long minutosBloqueo) {
+                       ParametroService parametroService) {
         this.cuentaAccesoRepository = cuentaAccesoRepository;
         this.cryptoManager = cryptoManager;
-        this.maximoIntentosFallidos = maximoIntentosFallidos;
-        this.minutosBloqueo = minutosBloqueo;
+        this.parametroService = parametroService;
     }
 
     /**
@@ -68,10 +64,10 @@ public class AuthService {
 
     private void registrarIntentoFallido(CuentaAcceso cuenta, LocalDateTime ahora) {
         cuenta.setIntentosFallidos(cuenta.getIntentosFallidos() + 1);
-        boolean alcanzoElMaximo = cuenta.getIntentosFallidos() >= maximoIntentosFallidos;
+        boolean alcanzoElMaximo = cuenta.getIntentosFallidos() >= parametroService.getMaximoIntentosLogin();
         if (alcanzoElMaximo) {
             cuenta.setIntentosFallidos(0);
-            cuenta.setBloqueadaHasta(ahora.plusMinutes(minutosBloqueo));
+            cuenta.setBloqueadaHasta(ahora.plusMinutes(parametroService.getMinutosBloqueoLogin()));
         }
         cuentaAccesoRepository.save(cuenta);
         if (alcanzoElMaximo) {

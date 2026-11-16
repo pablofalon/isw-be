@@ -24,6 +24,9 @@ public final class Permisos {
     /** Generar reportes, consultar indicadores y exportar (CU20, CU21, CU22). */
     public static final String REPORTES_CONSULTAR = "REPORTES_CONSULTAR";
 
+    /** Configurar categorías, prioridades y parámetros generales (CU25). */
+    public static final String PARAMETROS_ADMINISTRAR = "PARAMETROS_ADMINISTRAR";
+
     private Permisos() {
     }
 }

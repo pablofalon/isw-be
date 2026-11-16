@@ -1,6 +1,7 @@
 package org.proyecto.seed;
 
 import org.proyecto.business.Permisos;
+import org.proyecto.business.ValoresPorDefecto;
 import org.proyecto.data.CategoriaRepository;
 import org.proyecto.data.ComponentePermisoRepository;
 import org.proyecto.data.PrioridadRepository;
@@ -75,21 +76,15 @@ public class DataSeeder implements CommandLineRunner {
         if (categoriaRepository.count() > 0) {
             return;
         }
-        categoriaRepository.save(new Categoria("Problemas de acceso", "Inconvenientes de login o permisos", "soporte técnico"));
-        categoriaRepository.save(new Categoria("Reportes", "Errores o solicitudes sobre reportes", "reportes"));
-        categoriaRepository.save(new Categoria("Rendimiento", "Lentitud o demoras del sistema", "soporte técnico"));
-        categoriaRepository.save(new Categoria("Solicitudes", "Pedidos de nuevas funcionalidades", "desarrollo"));
-        categoriaRepository.save(new Categoria("Notificaciones", "Problemas con el envío de notificaciones", "soporte técnico"));
+        ValoresPorDefecto.CATEGORIAS.forEach(inicial -> categoriaRepository.save(inicial.crear()));
     }
 
     private void seedPrioridades() {
         if (prioridadRepository.count() > 0) {
             return;
         }
-        prioridadRepository.save(new Prioridad(NivelPrioridad.BAJA, "Impacto bajo, sin urgencia", 72));
-        prioridadRepository.save(new Prioridad(NivelPrioridad.MEDIA, "Impacto moderado", 48));
-        prioridadRepository.save(new Prioridad(NivelPrioridad.ALTA, "Impacto alto, requiere atención pronta", 24));
-        prioridadRepository.save(new Prioridad(NivelPrioridad.CRITICA, "Bloquea la operación del usuario", 4));
+        ValoresPorDefecto.PRIORIDADES.forEach(inicial -> prioridadRepository.save(
+                new Prioridad(inicial.nivel(), inicial.descripcion(), inicial.tiempoObjetivoHoras())));
     }
 
     /**
@@ -101,7 +96,7 @@ public class DataSeeder implements CommandLineRunner {
      *   GESTION_TICKETS = {TICKET_VER_TODOS, TICKET_CLASIFICAR, TICKET_ASIGNAR, TICKET_RESOLVER}
      *   OPERADOR        = {GESTION_TICKETS, TICKET_REABRIR_OPERATIVO}
      *   ADMINISTRADOR   = {GESTION_TICKETS, TICKET_GESTIONAR_TODOS, SEGURIDAD_ADMINISTRAR, USUARIOS_ADMINISTRAR,
-     *                      REPORTES_CONSULTAR}
+     *                      REPORTES_CONSULTAR, PARAMETROS_ADMINISTRAR}
      *   SUPERVISOR      = {TICKET_VER_TODOS, REPORTES_CONSULTAR}  (se asigna a una cuenta desde el ABM de seguridad)
      */
     private void seedPermisos() {
@@ -120,6 +115,7 @@ public class DataSeeder implements CommandLineRunner {
         Permiso administrarSeguridad = permiso(Permisos.SEGURIDAD_ADMINISTRAR, "Administrar grupos, permisos y su asignación");
         Permiso administrarUsuarios = permiso(Permisos.USUARIOS_ADMINISTRAR, "Alta, modificación y baja de usuarios");
         Permiso reportes = permiso(Permisos.REPORTES_CONSULTAR, "Generar reportes, consultar indicadores y exportar");
+        Permiso administrarParametros = permiso(Permisos.PARAMETROS_ADMINISTRAR, "Configurar categorías, prioridades y parámetros generales");
 
         grupo("USUARIO_FINAL", "Usuario que registra y sigue sus reclamos",
                 crear, verPropios, reenviar, validarResolucion, reabrirPropio);
@@ -127,10 +123,11 @@ public class DataSeeder implements CommandLineRunner {
                 verTodos, clasificar, asignar, resolver);
         grupo("OPERADOR", "Operador de soporte", gestion, reabrirOperativo);
         GrupoPermisos administrador = grupo("ADMINISTRADOR", "Administrador del sistema",
-                gestion, gestionarTodos, administrarSeguridad, administrarUsuarios, reportes);
+                gestion, gestionarTodos, administrarSeguridad, administrarUsuarios, reportes, administrarParametros);
         grupo("SUPERVISOR", "Supervisión: consulta de tickets, reportes e indicadores", verTodos, reportes);
         // La base persiste entre reinicios: si el grupo ya existía, se le suma el permiso nuevo.
         agregarSiFalta(administrador, reportes);
+        agregarSiFalta(administrador, administrarParametros);
     }
 
     private void agregarSiFalta(GrupoPermisos grupo, ComponentePermiso hijo) {
