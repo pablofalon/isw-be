@@ -64,6 +64,7 @@ public class TicketService {
     private final LimitesAdjuntos limitesAdjuntos;
     private final ComentarioRepository comentarioRepository;
     private final HistorialEstadoRepository historialEstadoRepository;
+    private final ParametroService parametroService;
 
     public TicketService(TicketRepository ticketRepository, AdjuntoRepository adjuntoRepository,
                           HistorialAsignacionRepository historialAsignacionRepository,
@@ -71,7 +72,8 @@ public class TicketService {
                           PrioridadRepository prioridadRepository, OperadorRepository operadorRepository,
                           NotificacionService notificacionService, LimitesAdjuntos limitesAdjuntos,
                           ComentarioRepository comentarioRepository,
-                          HistorialEstadoRepository historialEstadoRepository) {
+                          HistorialEstadoRepository historialEstadoRepository,
+                          ParametroService parametroService) {
         this.ticketRepository = ticketRepository;
         this.adjuntoRepository = adjuntoRepository;
         this.historialAsignacionRepository = historialAsignacionRepository;
@@ -81,6 +83,7 @@ public class TicketService {
         this.operadorRepository = operadorRepository;
         this.notificacionService = notificacionService;
         this.limitesAdjuntos = limitesAdjuntos;
+        this.parametroService = parametroService;
         this.comentarioRepository = comentarioRepository;
         this.historialEstadoRepository = historialEstadoRepository;
     }
@@ -334,9 +337,6 @@ public class TicketService {
 
     // ---- CU11 - Monitorear tiempos de respuesta ----
 
-    /** Umbral desde el cual un ticket sin atender se considera próximo a vencer: 80 % del tiempo objetivo. */
-    static final double UMBRAL_PROXIMO_A_VENCER = 0.8;
-
     public MonitoreoTiempos monitorearTiempos(Operador operador, VistaTickets alcance, FiltroTiempos filtro) {
         return monitorearTiempos(operador, alcance, filtro, LocalDateTime.now());
     }
@@ -353,8 +353,10 @@ public class TicketService {
                 alcance == VistaTickets.MIS_TICKETS ? operador.getId() : null, null, filtro.idCategoria(),
                 filtro.idPrioridad(), null, null, inicioDelDia(filtro.desde()), finDelDia(filtro.hasta()));
 
+        // Umbral de alerta vigente (CU25): un 80 % configurado equivale a 0.8 del tiempo objetivo.
+        double umbral = parametroService.getUmbralAlerta();
         List<MonitoreoTiempos.Item> items = tickets.stream()
-                .map(ticket -> medirTiempoRespuesta(ticket, ahora))
+                .map(ticket -> medirTiempoRespuesta(ticket, ahora, umbral))
                 .filter(item -> filtro.cumplimiento() == null || item.cumplimiento() == filtro.cumplimiento())
                 .sorted(Comparator.comparing(MonitoreoTiempos.Item::cumplimiento)
                         .thenComparing(Comparator.comparing(
@@ -372,7 +374,8 @@ public class TicketService {
                 redondear(promedio)), items);
     }
 
-    private MonitoreoTiempos.Item medirTiempoRespuesta(Ticket ticket, LocalDateTime ahora) {
+    private MonitoreoTiempos.Item medirTiempoRespuesta(Ticket ticket, LocalDateTime ahora,
+                                                         double umbralProximoAVencer) {
         LocalDateTime primeraAtencion = historialEstadoRepository.buscarFechaPrimeraAtencion(ticket.getId()).orElse(null);
         double horas = redondear(horasEntre(ticket.getFechaCreacion(), primeraAtencion != null ? primeraAtencion : ahora));
         boolean atendido = primeraAtencion != null;
@@ -383,7 +386,7 @@ public class TicketService {
         }
         double consumido = horas / objetivo;
         CumplimientoTiempo cumplimiento = consumido > 1 ? CumplimientoTiempo.VENCIDO
-                : consumido >= UMBRAL_PROXIMO_A_VENCER ? CumplimientoTiempo.PROXIMO_A_VENCER
+                : consumido >= umbralProximoAVencer ? CumplimientoTiempo.PROXIMO_A_VENCER
                 : CumplimientoTiempo.EN_PLAZO;
         return new MonitoreoTiempos.Item(ticket, cumplimiento, horas, objetivo, redondear(consumido * 100), atendido);
     }

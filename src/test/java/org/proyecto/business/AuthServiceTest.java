@@ -26,6 +26,9 @@ class AuthServiceTest {
     @Mock
     private CuentaAccesoRepository cuentaAccesoRepository;
 
+    @Mock
+    private ParametroService parametroService;
+
     private final CryptoManager cryptoManager = new CryptoManager();
 
     private AuthService authService;
@@ -33,7 +36,9 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(cuentaAccesoRepository, cryptoManager, 5, 15);
+        authService = new AuthService(cuentaAccesoRepository, cryptoManager, parametroService);
+        lenient().when(parametroService.getMaximoIntentosLogin()).thenReturn(5);
+        lenient().when(parametroService.getMinutosBloqueoLogin()).thenReturn(15L);
         cuenta = new CuentaAcceso();
         cuenta.setUsuarioLogin("juan.perez");
         cuenta.setPasswordHash(cryptoManager.hash("usuario123"));
