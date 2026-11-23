@@ -162,6 +162,13 @@ public class TicketService {
         return buscarTicketExistente(ticketId);
     }
 
+    /** Descarga de un adjunto (CU02 / CU03): tiene que pertenecer al ticket indicado. */
+    public Adjunto obtenerAdjunto(Long ticketId, Long adjuntoId) {
+        return adjuntoRepository.findById(adjuntoId)
+                .filter(a -> a.getTicket().getId().equals(ticketId))
+                .orElseThrow(() -> new RecursoNoEncontradoException("Adjunto inexistente: " + adjuntoId));
+    }
+
     public List<Adjunto> listarAdjuntos(Long ticketId) {
         return adjuntoRepository.findByTicketIdOrderByFechaCargaAsc(ticketId);
     }

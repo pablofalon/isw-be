@@ -19,6 +19,10 @@ import org.proyecto.entities.Ticket;
 import org.proyecto.entities.TicketEstadoCodigo;
 import org.proyecto.entities.UsuarioTicket;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +36,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -144,13 +149,40 @@ public class TicketController {
     @GetMapping("/{id}")
     public ResponseEntity<TicketResponse> detalle(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id) {
         Ticket ticket = ticketService.obtenerDetalle(id);
+        verificarAcceso(sesion, ticket);
+        return ResponseEntity.ok(enriquecer(ticket, sesion));
+    }
+
+    // Descarga de un adjunto: puede hacerlo quien puede ver el ticket.
+    @GetMapping("/{id}/adjuntos/{idAdjunto}")
+    public ResponseEntity<byte[]> descargarAdjunto(@AuthenticatedSession SesionActiva sesion, @PathVariable Long id,
+                                                   @PathVariable Long idAdjunto) {
+        verificarAcceso(sesion, ticketService.obtenerDetalle(id));
+        Adjunto adjunto = ticketService.obtenerAdjunto(id, idAdjunto);
+
+        MediaType tipo;
+        try {
+            tipo = MediaType.parseMediaType(adjunto.getTipoArchivo());
+        } catch (InvalidMediaTypeException e) {
+            tipo = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        ContentDisposition disposicion = ContentDisposition.attachment()
+                .filename(adjunto.getNombreArchivo(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(tipo)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposicion.toString())
+                .body(adjunto.getContenido());
+    }
+
+    /** Quien tiene TICKET_VER_TODOS ve cualquier ticket; el resto solo los propios. */
+    private void verificarAcceso(SesionActiva sesion, Ticket ticket) {
         if (!sesion.tiene(Permisos.TICKET_VER_TODOS)) {
             UsuarioTicket usuario = usuarioDe(sesion, Permisos.TICKET_VER_PROPIOS);
             if (!ticket.getUsuario().getId().equals(usuario.getId())) {
                 throw new ForbiddenOperationException("No podés ver un ticket que no te pertenece");
             }
         }
-        return ResponseEntity.ok(enriquecer(ticket, sesion));
     }
 
     // CU06 FA2 - usuario reenvía tras PENDIENTE_CORRECCION
