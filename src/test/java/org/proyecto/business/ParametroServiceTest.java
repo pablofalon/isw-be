@@ -108,13 +108,58 @@ class ParametroServiceTest {
     void desactivarCategoriaRegistraElCambioYNoBorra() {
         Categoria categoria = new Categoria("Reportes", "desc");
         categoria.setId(1L);
+        Categoria otra = new Categoria("Rendimiento", "desc");
+        otra.setId(2L);
         when(categoriaRepository.findById(1L)).thenReturn(Optional.of(categoria));
+        when(categoriaRepository.findByActivaTrue()).thenReturn(List.of(categoria, otra));
 
         Categoria resultado = service.cambiarEstadoCategoria("admin", 1L, false);
 
         assertFalse(resultado.isActiva());
         assertEquals("DESACTIVACION", capturarAuditoria().getAccion());
         verify(categoriaRepository, never()).delete(any());
+    }
+
+    @Test
+    void noSePuedeDesactivarLaUltimaCategoriaActiva() {
+        Categoria unica = new Categoria("Reportes", "desc");
+        unica.setId(1L);
+        when(categoriaRepository.findById(1L)).thenReturn(Optional.of(unica));
+        when(categoriaRepository.findByActivaTrue()).thenReturn(List.of(unica));
+
+        assertThrows(ParametroInvalidoException.class, () -> service.cambiarEstadoCategoria("admin", 1L, false));
+
+        assertTrue(unica.isActiva());
+        verify(categoriaRepository, never()).save(any());
+        verify(auditoriaRepository, never()).save(any());
+    }
+
+    @Test
+    void laPrioridadMasUrgenteNoPuedeTenerMasTiempoQueUnaMenosUrgente() {
+        Prioridad baja = prioridadConTiempo(1L, NivelPrioridad.BAJA, 72);
+        Prioridad media = prioridadConTiempo(2L, NivelPrioridad.MEDIA, 48);
+        Prioridad alta = prioridadConTiempo(3L, NivelPrioridad.ALTA, 24);
+        Prioridad critica = prioridadConTiempo(4L, NivelPrioridad.CRITICA, 4);
+        when(prioridadRepository.findAll()).thenReturn(List.of(baja, media, alta, critica));
+        when(prioridadRepository.findById(3L)).thenReturn(Optional.of(alta));
+        when(prioridadRepository.findById(1L)).thenReturn(Optional.of(baja));
+
+        // ALTA (60 h) quedaría por encima de MEDIA (48 h).
+        assertThrows(ParametroInvalidoException.class, () -> service.modificarPrioridad("admin", 3L, "x", 60));
+        // BAJA (10 h) quedaría por debajo de MEDIA (48 h).
+        assertThrows(ParametroInvalidoException.class, () -> service.modificarPrioridad("admin", 1L, "x", 10));
+        assertEquals(24, alta.getTiempoObjetivoRespuesta());
+        assertEquals(72, baja.getTiempoObjetivoRespuesta());
+        verify(auditoriaRepository, never()).save(any());
+
+        // Igual al de la prioridad vecina es válido (menor o igual).
+        assertEquals(48, service.modificarPrioridad("admin", 3L, "x", 48).getTiempoObjetivoRespuesta());
+    }
+
+    private static Prioridad prioridadConTiempo(Long id, NivelPrioridad nivel, int horas) {
+        Prioridad prioridad = new Prioridad(nivel, "desc", horas);
+        prioridad.setId(id);
+        return prioridad;
     }
 
     @Test

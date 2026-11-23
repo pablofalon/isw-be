@@ -114,6 +114,11 @@ public class ParametroService {
         if (categoria.isActiva() == activa) {
             return categoria;
         }
+        // E1: CU01 y CU04 necesitan al menos una categoría activa para operar.
+        if (!activa && categoriaRepository.findByActivaTrue().stream().allMatch(c -> c.getId().equals(id))) {
+            throw new ParametroInvalidoException(
+                    "No se puede desactivar la última categoría activa: el sistema necesita al menos una");
+        }
         String anterior = describir(categoria);
         categoria.setActiva(activa);
         categoria = categoriaRepository.save(categoria);
@@ -133,6 +138,7 @@ public class ParametroService {
             throw new ParametroInvalidoException(
                     "El tiempo máximo de respuesta debe estar entre 1 y " + MAXIMO_HORAS_OBJETIVO + " horas");
         }
+        validarOrdenDeTiempos(prioridad, horasObjetivo);
         String anterior = describir(prioridad);
         prioridad.setDescripcion(limpiar(descripcion));
         prioridad.setTiempoObjetivoRespuesta(horasObjetivo);
@@ -140,6 +146,29 @@ public class ParametroService {
         auditar(administrador, GrupoParametros.PRIORIDADES, prioridad.getNivel().name(), "MODIFICACION",
                 anterior, describir(prioridad));
         return prioridad;
+    }
+
+    /**
+     * FA2: a mayor urgencia, menor o igual tiempo máximo de respuesta (CRITICA <= ALTA <= MEDIA <= BAJA),
+     * considerando el valor nuevo de la prioridad editada.
+     */
+    private void validarOrdenDeTiempos(Prioridad editada, int horasNuevas) {
+        List<Prioridad> ordenadas = prioridadRepository.findAll().stream()
+                .sorted(java.util.Comparator.comparing(Prioridad::getNivel))
+                .toList();
+        Prioridad anterior = null;
+        Integer horasAnterior = null;
+        for (Prioridad actual : ordenadas) {
+            Integer horas = actual.getId().equals(editada.getId()) ? Integer.valueOf(horasNuevas)
+                    : actual.getTiempoObjetivoRespuesta();
+            if (anterior != null && horas != null && horasAnterior != null && horas > horasAnterior) {
+                throw new ParametroInvalidoException("El tiempo de " + actual.getNivel() + " (" + horas
+                        + " h) no puede ser mayor al de " + anterior.getNivel() + " (" + horasAnterior
+                        + " h): a mayor urgencia, menor o igual tiempo máximo de respuesta");
+            }
+            anterior = actual;
+            horasAnterior = horas;
+        }
     }
 
     // ---- Parámetros generales ----
