@@ -3,6 +3,10 @@ package org.proyecto.business;
 import org.junit.jupiter.api.Test;
 import org.proyecto.entities.CuentaAcceso;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,5 +47,59 @@ class SessionManagerTest {
 
         assertEquals(Set.of(Permisos.TICKET_RESOLVER), sessionManager.getSession(token).orElseThrow().permisos());
         sessionManager.invalidateSession(token);
+    }
+
+    @Test
+    void laSesionExpiraTrasElTiempoDeInactividad() {
+        CuentaAcceso cuenta = new CuentaAcceso();
+        cuenta.setId(3L);
+        Instant inicio = Instant.parse("2026-01-01T10:00:00Z");
+        MutableClock reloj = new MutableClock(inicio);
+        sessionManager.setReloj(reloj);
+        sessionManager.setMinutosInactividad(30);
+        try {
+            String token = sessionManager.createSession(cuenta, Set.of(Permisos.TICKET_CREAR));
+
+            // Cada uso renueva la inactividad: 20 + 20 minutos no expiran.
+            reloj.avanzarMinutos(20);
+            assertTrue(sessionManager.getSession(token).isPresent());
+            reloj.avanzarMinutos(20);
+            assertTrue(sessionManager.getSession(token).isPresent());
+
+            // Sin uso por más de 30 minutos, la sesión vence y se elimina.
+            reloj.avanzarMinutos(31);
+            assertTrue(sessionManager.getSession(token).isEmpty());
+            assertTrue(sessionManager.getSession(token).isEmpty());
+        } finally {
+            sessionManager.setReloj(Clock.systemUTC());
+            sessionManager.setMinutosInactividad(30);
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant ahora;
+
+        MutableClock(Instant ahora) {
+            this.ahora = ahora;
+        }
+
+        void avanzarMinutos(long minutos) {
+            ahora = ahora.plus(Duration.ofMinutes(minutos));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return ahora;
+        }
     }
 }

@@ -36,7 +36,7 @@ public class AuthenticatedSessionArgumentResolver implements HandlerMethodArgume
         }
 
         SesionActiva sesion = SessionManager.getInstance().getSession(token)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid session token"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sesión inválida o expirada"));
         AuthenticatedSession anotacion = parameter.getParameterAnnotation(AuthenticatedSession.class);
         if (sesion.debeCambiarPassword() && (anotacion == null || !anotacion.permitePasswordTemporal())) {
             throw new ForbiddenOperationException("Debe cambiar la contraseña temporal antes de continuar");
