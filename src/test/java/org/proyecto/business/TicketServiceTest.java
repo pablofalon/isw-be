@@ -334,6 +334,24 @@ class TicketServiceTest {
                 () -> ticketService.eliminarAdjunto(1L, 50L, usuario.getId()));
     }
 
+    @Test
+    void obtenerAdjuntoDevuelveElArchivoDelTicket() {
+        Ticket ticket = new Ticket();
+        ticket.setId(1L);
+        Adjunto adjunto = adjuntoDe(ticket, 50L, "captura.png");
+
+        assertEquals(adjunto, ticketService.obtenerAdjunto(1L, 50L));
+    }
+
+    @Test
+    void obtenerAdjuntoDeOtroTicketFalla() {
+        Ticket otroTicket = new Ticket();
+        otroTicket.setId(2L);
+        adjuntoDe(otroTicket, 50L, "captura.png");
+
+        assertThrows(RecursoNoEncontradoException.class, () -> ticketService.obtenerAdjunto(1L, 50L));
+    }
+
     private Adjunto adjuntoDe(Ticket ticket, Long id, String nombre) {
         Adjunto adjunto = new Adjunto();
         adjunto.setId(id);
