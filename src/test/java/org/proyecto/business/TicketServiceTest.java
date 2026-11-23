@@ -172,6 +172,20 @@ class TicketServiceTest {
     }
 
     @Test
+    void losIdentificadoresAusentesSeRechazanComoErrorDeValidacionYNoComoFalloInterno() {
+        Ticket ticket = ticketEnEstado(TicketEstadoCodigo.VALIDADO);
+
+        assertThrows(InvalidTicketOperationException.class, () -> ticketService.asignarOperador(1L, null, operador));
+        assertThrows(InvalidTicketOperationException.class, () -> ticketService.asignarPrioridad(1L, null, operador));
+        ticket.setOperador(operador);
+        assertThrows(InvalidTicketOperationException.class,
+                () -> ticketService.reasignarOperador(1L, null, "Carga operativa", operador));
+
+        ticketEnEstado(TicketEstadoCodigo.NUEVO);
+        assertThrows(InvalidTicketOperationException.class, () -> ticketService.clasificar(1L, null, operador));
+    }
+
+    @Test
     void asignarOperadorSinEstarValidadoFalla() {
         ticketEnEstado(TicketEstadoCodigo.NUEVO);
 
