@@ -751,6 +751,9 @@ public class TicketService {
     }
 
     private Categoria buscarCategoriaActiva(Long id) {
+        if (id == null) {
+            throw new InvalidTicketOperationException("La categoría es obligatoria");
+        }
         Categoria categoria = categoriaRepository.findById(id)
                 .orElseThrow(() -> new InvalidTicketOperationException("Categoría inexistente: " + id));
         if (!categoria.isActiva()) {
@@ -825,11 +828,17 @@ public class TicketService {
     }
 
     private Prioridad buscarPrioridad(Long id) {
+        if (id == null) {
+            throw new InvalidTicketOperationException("La prioridad es obligatoria");
+        }
         return prioridadRepository.findById(id)
                 .orElseThrow(() -> new InvalidTicketOperationException("Prioridad inexistente: " + id));
     }
 
     private Operador buscarOperadorActivo(Long id) {
+        if (id == null) {
+            throw new InvalidTicketOperationException("Debe seleccionar un operador");
+        }
         Operador operador = operadorRepository.findById(id)
                 .orElseThrow(() -> new InvalidTicketOperationException("Operador inexistente: " + id));
         if (!operador.isActivo()) {
